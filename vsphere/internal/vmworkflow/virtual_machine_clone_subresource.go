@@ -30,9 +30,16 @@ func VirtualMachineCloneSchema() map[string]*schema.Schema {
 			Description: "The UUID of the source virtual machine or template.",
 		},
 		"linked_clone": {
-			Type:        schema.TypeBool,
-			Optional:    true,
-			Description: "Whether or not to create a linked clone when cloning. When this option is used, the source VM must have a single snapshot associated with it.",
+			Type:          schema.TypeBool,
+			Optional:      true,
+			ConflictsWith: []string{"clone.0.instant_clone"},
+			Description:   "Whether or not to create a linked clone when cloning. When this option is used, the source VM must have a single snapshot associated with it.",
+		},
+		"instant_clone": {
+			Type:          schema.TypeBool,
+			Optional:      true,
+			ConflictsWith: []string{"clone.0.linked_clone"},
+			Description:   "Whether or not to create an instant clone when cloning. When this option is used, the source VM must be in a powered on or quiesced state",
 		},
 		"timeout": {
 			Type:         schema.TypeInt,
@@ -223,5 +230,101 @@ func ExpandVirtualMachineCloneSpec(d *schema.ResourceData, c *govmomi.Client) (t
 	}
 	spec.Location.Disk = relocators
 	log.Printf("[DEBUG] ExpandVirtualMachineCloneSpec: Clone spec prep complete")
+	return spec, vm, nil
+}
+
+// ExpandVirtualMachineInstantCloneSpec creates an instant clone spec for an existing virtual machine.
+//
+// The clone spec built by this function for the clone contains the target
+// datastore, the source snapshot in the event of linked clones, and a relocate
+// spec that contains the new locations and configuration details of the new
+// virtual disks.
+func ExpandVirtualMachineInstantCloneSpec(d *schema.ResourceData, c *govmomi.Client, fo *object.Folder) (types.VirtualMachineInstantCloneSpec, *object.VirtualMachine, error) {
+	var spec types.VirtualMachineInstantCloneSpec
+	log.Printf("[DEBUG] ExpandVirtualMachineInstantCloneSpec: Preparing instant clone spec for VM")
+
+	// Populate the datastore only if we have a datastore ID. The ID may not be
+	// specified in the event a datastore cluster is specified instead.
+	if dsID, ok := d.GetOk("datastore_id"); ok {
+		ds, err := datastore.FromID(c, dsID.(string))
+		if err != nil {
+			return spec, nil, fmt.Errorf("error locating datastore for VM: %s", err)
+		}
+		spec.Location.Datastore = types.NewReference(ds.Reference())
+	}
+
+	spec.Name = d.Get("name").(string)
+
+	spec.Location.Folder = types.NewReference(fo.Reference())
+
+	//Set extra configuration data which can be used to supply advanced parameters
+	ec := d.Get("extra_config").(map[string]interface{})
+
+	for k, v := range ec {
+		spec.Config = append(spec.Config, &types.OptionValue{Key: k, Value: v})
+	}
+
+	n := d.Get("network_interface").([]interface{})
+	for _, v := range n {
+		log.Printf("[DEBUG] NETWORK: %s", v)
+		log.Printf("[DEBUG] NETWORK: %s", v.(map[string]interface{})["network_id"])
+		log.Printf("[DEBUG] NETWORK: %s", v.(map[string]interface{})["mac_address"])
+	}
+
+	// prepare virtual device config spec for network card
+	configSpecs := []types.BaseVirtualDeviceConfigSpec{}
+
+	// op := types.VirtualDeviceConfigSpecOperationAdd
+	// card, derr := cmd.NetworkFlag.Device()
+	// if derr != nil {
+	// 	return nil, derr
+	// }
+	// // search for the first network card of the source
+	// for _, device := range devices {
+	// 	if _, ok := device.(types.BaseVirtualEthernetCard); ok {
+	// 		op = types.VirtualDeviceConfigSpecOperationEdit
+	// 		// set new backing info
+	// 		cmd.NetworkFlag.Change(device, card)
+	// 		card = device
+	// 		break
+	// 	}
+	// }
+
+	// configSpecs = append(configSpecs, &types.VirtualDeviceConfigSpec{
+	// 	Operation: op,
+	// 	Device:    card,
+	// })
+
+	spec.Location.DeviceChange = configSpecs
+
+	tUUID := d.Get("clone.0.template_uuid").(string)
+	log.Printf("[DEBUG] ExpandVirtualMachineInstantCloneSpec: Cloning from UUID: %s", tUUID)
+	vm, err := virtualmachine.FromUUID(c, tUUID)
+	if err != nil {
+		return spec, nil, fmt.Errorf("cannot locate virtual machine or template with UUID %q: %s", tUUID, err)
+	}
+	vprops, err := virtualmachine.Properties(vm)
+	if err != nil {
+		return spec, nil, fmt.Errorf("error fetching virtual machine or template properties: %s", err)
+	}
+
+	// Set the target host system and resource pool.
+	poolID := d.Get("resource_pool_id").(string)
+	pool, err := resourcepool.FromID(c, poolID)
+	if err != nil {
+		return spec, nil, fmt.Errorf("could not find resource pool ID %q: %s", poolID, err)
+	}
+
+	poolRef := pool.Reference()
+	spec.Location.Pool = &poolRef
+
+	// Grab the relocate spec for the disks.
+	l := object.VirtualDeviceList(vprops.Config.Hardware.Device)
+	relocators, err := virtualdevice.DiskCloneRelocateOperation(d, c, l)
+	if err != nil {
+		return spec, nil, err
+	}
+	spec.Location.Disk = relocators
+	log.Printf("[DEBUG] ExpandVirtualMachineInstantCloneSpec: Instant Clone spec prep complete")
 	return spec, vm, nil
 }
