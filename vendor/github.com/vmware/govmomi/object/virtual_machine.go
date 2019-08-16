@@ -169,6 +169,20 @@ func (v VirtualMachine) Clone(ctx context.Context, folder *Folder, name string, 
 	return NewTask(v.c, res.Returnval), nil
 }
 
+func (v VirtualMachine) InstantClone(ctx context.Context, config types.VirtualMachineInstantCloneSpec) (*Task, error) {
+	req := types.InstantClone_Task{
+		This: v.Reference(),
+		Spec: config,
+	}
+
+	res, err := methods.InstantClone_Task(ctx, v.c, &req)
+	if err != nil {
+		return nil, err
+	}
+
+	return NewTask(v.c, res.Returnval), nil
+}
+
 func (v VirtualMachine) Customize(ctx context.Context, spec types.CustomizationSpec) (*Task, error) {
 	req := types.CustomizeVM_Task{
 		This: v.Reference(),
@@ -221,7 +235,9 @@ func (v VirtualMachine) RefreshStorageInfo(ctx context.Context) error {
 	return err
 }
 
-func (v VirtualMachine) WaitForIP(ctx context.Context) (string, error) {
+// WaitForIP waits for the VM guest.ipAddress property to report an IP address.
+// Waits for an IPv4 address if the v4 param is true.
+func (v VirtualMachine) WaitForIP(ctx context.Context, v4 ...bool) (string, error) {
 	var ip string
 
 	p := property.DefaultCollector(v.c)
@@ -238,6 +254,11 @@ func (v VirtualMachine) WaitForIP(ctx context.Context) (string, error) {
 			}
 
 			ip = c.Val.(string)
+			if len(v4) == 1 && v4[0] {
+				if net.ParseIP(ip).To4() == nil {
+					return false
+				}
+			}
 			return true
 		}
 
@@ -284,6 +305,10 @@ func (v VirtualMachine) WaitForNetIP(ctx context.Context, v4 bool, device ...str
 
 		return true
 	})
+
+	if err != nil {
+		return nil, err
+	}
 
 	if len(device) != 0 {
 		// Only wait for specific NIC(s)
@@ -569,7 +594,7 @@ func (v VirtualMachine) FindSnapshot(ctx context.Context, name string) (*types.M
 	}
 
 	if o.Snapshot == nil || len(o.Snapshot.RootSnapshotList) == 0 {
-		return nil, errors.New("No snapshots for this VM")
+		return nil, errors.New("no snapshots for this VM")
 	}
 
 	m := make(snapshotMap)
