@@ -1,6 +1,7 @@
 package vmworkflow
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -8,6 +9,8 @@ import (
 	"github.com/hashicorp/terraform/helper/validation"
 	"github.com/terraform-providers/terraform-provider-vsphere/vsphere/internal/helper/datastore"
 	"github.com/terraform-providers/terraform-provider-vsphere/vsphere/internal/helper/hostsystem"
+	"github.com/terraform-providers/terraform-provider-vsphere/vsphere/internal/helper/network"
+	"github.com/terraform-providers/terraform-provider-vsphere/vsphere/internal/helper/provider"
 	"github.com/terraform-providers/terraform-provider-vsphere/vsphere/internal/helper/resourcepool"
 	"github.com/terraform-providers/terraform-provider-vsphere/vsphere/internal/helper/virtualmachine"
 	"github.com/terraform-providers/terraform-provider-vsphere/vsphere/internal/virtualdevice"
@@ -274,6 +277,8 @@ func ExpandVirtualMachineInstantCloneSpec(d *schema.ResourceData, c *govmomi.Cli
 	// prepare virtual device config spec for network card
 	configSpecs := []types.BaseVirtualDeviceConfigSpec{}
 
+	test := object.VirtualDeviceList{}
+
 	// op := types.VirtualDeviceConfigSpecOperationAdd
 	// card, derr := cmd.NetworkFlag.Device()
 	// if derr != nil {
@@ -295,7 +300,7 @@ func ExpandVirtualMachineInstantCloneSpec(d *schema.ResourceData, c *govmomi.Cli
 	// 	Device:    card,
 	// })
 
-	spec.Location.DeviceChange = configSpecs
+	// Get the hardware devices associated with source vm
 
 	tUUID := d.Get("clone.0.template_uuid").(string)
 	log.Printf("[DEBUG] ExpandVirtualMachineInstantCloneSpec: Cloning from UUID: %s", tUUID)
@@ -306,6 +311,69 @@ func ExpandVirtualMachineInstantCloneSpec(d *schema.ResourceData, c *govmomi.Cli
 	vprops, err := virtualmachine.Properties(vm)
 	if err != nil {
 		return spec, nil, fmt.Errorf("error fetching virtual machine or template properties: %s", err)
+	}
+
+	devices := object.VirtualDeviceList(vprops.Config.Hardware.Device)
+
+	// newdevices := object.VirtualDeviceList()
+
+	// device, err := newdevices.CreateEthernetCard("e1000", backing)
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	// Retrieve devices of type Base VirtualEthernetCard
+
+	log.Printf("[DEBUG] NetworkInterfacePostCloneOperation: Looking for post-clone device changes")
+	devices = devices.Select(func(device types.BaseVirtualDevice) bool {
+		if _, ok := device.(types.BaseVirtualEthernetCard); ok {
+			return true
+		}
+		return false
+	})
+
+	for _, device := range devices {
+
+		//		current := device.(types.BaseVirtualEthernetCard).GetVirtualEthernetCard()
+		current := device
+
+		//		current := device.(types.BaseVirtualEthernetCard).GetVirtualEthernetCard()
+
+		//		current.Backing.GetVirtualDeviceBackingInfo()
+
+		net, err := network.FromID(c, "dvportgroup-24")
+		if err != nil {
+			return spec, nil, err
+		}
+		bctx, bcancel := context.WithTimeout(context.Background(), provider.DefaultAPITimeout)
+		defer bcancel()
+		backing, err := net.EthernetCardBackingInfo(bctx)
+		if err != nil {
+			return spec, nil, err
+		}
+
+		log.Printf("[DEBUG] BACKING: %s", backing)
+
+		//		current.Backing = backing
+		current.(types.BaseVirtualEthernetCard).GetVirtualEthernetCard().Backing = backing
+		current.(types.BaseVirtualEthernetCard).GetVirtualEthernetCard().MacAddress = "00:00:00:00:00:0a"
+
+		newDevice, err := test.CreateEthernetCard("e1000", backing)
+
+		//	networkDevice := device.GetVirtualDevice()
+
+		log.Printf("[DEBUG] NETWORK DEVICE: %s", current)
+
+		configSpecs = append(configSpecs, &types.VirtualDeviceConfigSpec{
+			Operation: types.VirtualDeviceConfigSpecOperationEdit,
+			//			Device:    current,
+			Device: newDevice,
+		})
+
+		spec.Location.DeviceChange = configSpecs
+
+		log.Printf("[DEBUG] CONFIG SPECS: %s", configSpecs)
+		log.Printf("[DEBUG] CONFIG SPECS: %s", spec.Location.DeviceChange)
 	}
 
 	// Set the target host system and resource pool.
