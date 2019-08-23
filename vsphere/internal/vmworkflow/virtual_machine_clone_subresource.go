@@ -238,10 +238,9 @@ func ExpandVirtualMachineCloneSpec(d *schema.ResourceData, c *govmomi.Client) (t
 
 // ExpandVirtualMachineInstantCloneSpec creates an instant clone spec for an existing virtual machine.
 //
-// The clone spec built by this function for the clone contains the target
-// datastore, the source snapshot in the event of linked clones, and a relocate
-// spec that contains the new locations and configuration details of the new
-// virtual disks.
+// The instant clone spec built by this function specifies the target datastore,
+// the resource pool, the folder, extra config and the networks that back the
+// respective network devices that are cloned from the source vm
 func ExpandVirtualMachineInstantCloneSpec(d *schema.ResourceData, c *govmomi.Client, fo *object.Folder) (types.VirtualMachineInstantCloneSpec, *object.VirtualMachine, error) {
 	var spec types.VirtualMachineInstantCloneSpec
 	log.Printf("[DEBUG] ExpandVirtualMachineInstantCloneSpec: Preparing instant clone spec for VM")
@@ -267,41 +266,10 @@ func ExpandVirtualMachineInstantCloneSpec(d *schema.ResourceData, c *govmomi.Cli
 		spec.Config = append(spec.Config, &types.OptionValue{Key: k, Value: v})
 	}
 
-	n := d.Get("network_interface").([]interface{})
-	for _, v := range n {
-		log.Printf("[DEBUG] NETWORK: %s", v)
-		log.Printf("[DEBUG] NETWORK: %s", v.(map[string]interface{})["network_id"])
-		log.Printf("[DEBUG] NETWORK: %s", v.(map[string]interface{})["mac_address"])
-	}
-
 	// prepare virtual device config spec for network card
 	configSpecs := []types.BaseVirtualDeviceConfigSpec{}
 
-	test := object.VirtualDeviceList{}
-
-	// op := types.VirtualDeviceConfigSpecOperationAdd
-	// card, derr := cmd.NetworkFlag.Device()
-	// if derr != nil {
-	// 	return nil, derr
-	// }
-	// // search for the first network card of the source
-	// for _, device := range devices {
-	// 	if _, ok := device.(types.BaseVirtualEthernetCard); ok {
-	// 		op = types.VirtualDeviceConfigSpecOperationEdit
-	// 		// set new backing info
-	// 		cmd.NetworkFlag.Change(device, card)
-	// 		card = device
-	// 		break
-	// 	}
-	// }
-
-	// configSpecs = append(configSpecs, &types.VirtualDeviceConfigSpec{
-	// 	Operation: op,
-	// 	Device:    card,
-	// })
-
 	// Get the hardware devices associated with source vm
-
 	tUUID := d.Get("clone.0.template_uuid").(string)
 	log.Printf("[DEBUG] ExpandVirtualMachineInstantCloneSpec: Cloning from UUID: %s", tUUID)
 	vm, err := virtualmachine.FromUUID(c, tUUID)
@@ -315,15 +283,7 @@ func ExpandVirtualMachineInstantCloneSpec(d *schema.ResourceData, c *govmomi.Cli
 
 	devices := object.VirtualDeviceList(vprops.Config.Hardware.Device)
 
-	// newdevices := object.VirtualDeviceList()
-
-	// device, err := newdevices.CreateEthernetCard("e1000", backing)
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	// Retrieve devices of type Base VirtualEthernetCard
-
+	// Filter devices of type BaseVirtualEthernetCard
 	log.Printf("[DEBUG] NetworkInterfacePostCloneOperation: Looking for post-clone device changes")
 	devices = devices.Select(func(device types.BaseVirtualDevice) bool {
 		if _, ok := device.(types.BaseVirtualEthernetCard); ok {
@@ -332,48 +292,51 @@ func ExpandVirtualMachineInstantCloneSpec(d *schema.ResourceData, c *govmomi.Cli
 		return false
 	})
 
-	for _, device := range devices {
+	//Get network interfaces from resource
+	n := d.Get("network_interface").([]interface{})
+	log.Printf("[DEBUG] Number of devices: %d", len(devices))
+	log.Printf("[DEBUG] Number of networks: %d", len(n))
 
-		//		current := device.(types.BaseVirtualEthernetCard).GetVirtualEthernetCard()
-		current := device
+	// Iterate through network devices and update the backing devices
+	for index, device := range devices {
+		if index < len(n) {
 
-		//		current := device.(types.BaseVirtualEthernetCard).GetVirtualEthernetCard()
+			// Get backing device for network_interface from resource
+			backingMoid := n[index].(map[string]interface{})["network_id"]
 
-		//		current.Backing.GetVirtualDeviceBackingInfo()
+			net, err := network.FromID(c, backingMoid.(string))
+			if err != nil {
+				return spec, nil, err
+			}
+			bctx, bcancel := context.WithTimeout(context.Background(), provider.DefaultAPITimeout)
+			defer bcancel()
+			backing, err := net.EthernetCardBackingInfo(bctx)
+			if err != nil {
+				return spec, nil, err
+			}
 
-		net, err := network.FromID(c, "dvportgroup-24")
-		if err != nil {
-			return spec, nil, err
+			// Configure the network device with the backing device previously determined from resource
+			virtualEthernetCard := device.(types.BaseVirtualEthernetCard).GetVirtualEthernetCard()
+			virtualEthernetCard.Backing = backing
+
+			// If required then configure a static mac
+			if n[index].(map[string]interface{})["use_static_mac"].(bool) {
+				virtualEthernetCard.MacAddress = n[index].(map[string]interface{})["mac_address"].(string)
+				virtualEthernetCard.AddressType = string(types.VirtualEthernetCardMacTypeManual)
+			}
+
+			configSpecs = append(configSpecs, &types.VirtualDeviceConfigSpec{
+				Operation: types.VirtualDeviceConfigSpecOperationEdit,
+				Device:    device,
+			})
+		} else {
+			configSpecs = append(configSpecs, &types.VirtualDeviceConfigSpec{
+				Operation: types.VirtualDeviceConfigSpecOperationRemove,
+				Device:    device,
+			})
 		}
-		bctx, bcancel := context.WithTimeout(context.Background(), provider.DefaultAPITimeout)
-		defer bcancel()
-		backing, err := net.EthernetCardBackingInfo(bctx)
-		if err != nil {
-			return spec, nil, err
-		}
-
-		log.Printf("[DEBUG] BACKING: %s", backing)
-
-		//		current.Backing = backing
-		current.(types.BaseVirtualEthernetCard).GetVirtualEthernetCard().Backing = backing
-		current.(types.BaseVirtualEthernetCard).GetVirtualEthernetCard().MacAddress = "00:00:00:00:00:0a"
-
-		newDevice, err := test.CreateEthernetCard("e1000", backing)
-
-		//	networkDevice := device.GetVirtualDevice()
-
-		log.Printf("[DEBUG] NETWORK DEVICE: %s", current)
-
-		configSpecs = append(configSpecs, &types.VirtualDeviceConfigSpec{
-			Operation: types.VirtualDeviceConfigSpecOperationEdit,
-			//			Device:    current,
-			Device: newDevice,
-		})
 
 		spec.Location.DeviceChange = configSpecs
-
-		log.Printf("[DEBUG] CONFIG SPECS: %s", configSpecs)
-		log.Printf("[DEBUG] CONFIG SPECS: %s", spec.Location.DeviceChange)
 	}
 
 	// Set the target host system and resource pool.
