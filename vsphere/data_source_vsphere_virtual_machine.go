@@ -56,6 +56,24 @@ func dataSourceVSphereVirtualMachine() *schema.Resource {
 				Computed:    true,
 				Description: "Mode for sharing the SCSI bus.",
 			},
+			"num_cpus": {
+				Type:        schema.TypeInt,
+				Optional:    true,
+				Default:     1,
+				Description: "The number of virtual processors to assign to this virtual machine.",
+			},
+			"num_cores_per_socket": {
+				Type:        schema.TypeInt,
+				Optional:    true,
+				Default:     1,
+				Description: "The number of cores to distribute amongst the CPUs in this virtual machine. If specified, the value supplied to num_cpus must be evenly divisible by this value.",
+			},
+			"memory": {
+				Type:        schema.TypeInt,
+				Optional:    true,
+				Default:     1024,
+				Description: "The size of the virtual machine's memory, in MB.",
+			},
 			"disks": {
 				Type:        schema.TypeList,
 				Description: "Select configuration attributes from the disks on this virtual machine, sorted by bus and unit number.",
@@ -124,6 +142,10 @@ func dataSourceVSphereVirtualMachineRead(d *schema.ResourceData, meta interface{
 	d.Set("scsi_type", virtualdevice.ReadSCSIBusType(object.VirtualDeviceList(props.Config.Hardware.Device), d.Get("scsi_controller_scan_count").(int)))
 	d.Set("scsi_bus_sharing", virtualdevice.ReadSCSIBusSharing(object.VirtualDeviceList(props.Config.Hardware.Device), d.Get("scsi_controller_scan_count").(int)))
 	d.Set("firmware", props.Config.Firmware)
+	d.Set("num_cpus", props.Config.Hardware.NumCPU)
+	d.Set("num_cores_per_socket", props.Config.Hardware.NumCoresPerSocket)
+	d.Set("memory", props.Config.Hardware.MemoryMB)
+
 	disks, err := virtualdevice.ReadDiskAttrsForDataSource(object.VirtualDeviceList(props.Config.Hardware.Device), d.Get("scsi_controller_scan_count").(int))
 	if err != nil {
 		return fmt.Errorf("error reading disk sizes: %s", err)

@@ -183,11 +183,20 @@ func resourceVSphereVirtualMachine() *schema.Resource {
 			Elem:        &schema.Resource{Schema: virtualdevice.CdromSubresourceSchema()},
 		},
 		"clone": {
-			Type:        schema.TypeList,
-			Optional:    true,
-			Description: "A specification for cloning a virtual machine from template.",
-			MaxItems:    1,
-			Elem:        &schema.Resource{Schema: vmworkflow.VirtualMachineCloneSchema()},
+			Type:          schema.TypeList,
+			Optional:      true,
+			ConflictsWith: []string{"instantclone"},
+			Description:   "A specification for cloning a virtual machine from template.",
+			MaxItems:      1,
+			Elem:          &schema.Resource{Schema: vmworkflow.VirtualMachineCloneSchema()},
+		},
+		"instantclone": {
+			Type:          schema.TypeList,
+			Optional:      true,
+			ConflictsWith: []string{"clone"},
+			Description:   "A specification for instant cloning a virtual machine from a source virtual machine.",
+			MaxItems:      1,
+			Elem:          &schema.Resource{Schema: vmworkflow.VirtualMachineInstantCloneSchema()},
 		},
 		"reboot_required": {
 			Type:        schema.TypeBool,
@@ -254,7 +263,7 @@ func resourceVSphereVirtualMachineCreate(d *schema.ResourceData, meta interface{
 	// operations that fail during this process don't create a dangling resource.
 	// The VM should also be returned powered on.
 	switch {
-	case len(d.Get("clone").([]interface{})) > 0 && d.Get("clone.0.instant_clone").(bool):
+	case len(d.Get("instantclone").([]interface{})) > 0:
 		vm, err = resourceVSphereVirtualMachineCreateInstantClone(d, meta)
 	case len(d.Get("clone").([]interface{})) > 0:
 		vm, err = resourceVSphereVirtualMachineCreateClone(d, meta)
@@ -1264,7 +1273,7 @@ func resourceVSphereVirtualMachineCreateInstantClone(d *schema.ResourceData, met
 
 	// Start the clone
 	name := d.Get("name").(string)
-	timeout := d.Get("clone.0.timeout").(int)
+	timeout := d.Get("instantclone.0.timeout").(int)
 	var vm *object.VirtualMachine
 	vm, err = virtualmachine.InstantClone(client, srcVM, fo, name, cloneSpec, timeout)
 
@@ -1361,7 +1370,7 @@ func resourceVSphereVirtualMachineCreateInstantClone(d *schema.ResourceData, met
 	if _, ok := d.GetOk("datastore_cluster_id"); ok {
 		err = resourceVSphereVirtualMachineUpdateReconfigureWithSDRS(d, meta, vm, cfgSpec)
 	} else {
-//		err = virtualmachine.Reconfigure(vm, cfgSpec)
+		//		err = virtualmachine.Reconfigure(vm, cfgSpec)
 	}
 	if err != nil {
 		return nil, resourceVSphereVirtualMachineRollbackCreate(
@@ -1372,36 +1381,6 @@ func resourceVSphereVirtualMachineCreateInstantClone(d *schema.ResourceData, met
 		)
 	}
 
-	var cw *virtualMachineCustomizationWaiter
-	// Send customization spec if any has been defined.
-	if len(d.Get("clone.0.customize").([]interface{})) > 0 {
-		family, err := resourcepool.OSFamily(client, pool, d.Get("guest_id").(string))
-		if err != nil {
-			return nil, fmt.Errorf("cannot find OS family for guest ID %q: %s", d.Get("guest_id").(string), err)
-		}
-		custSpec := vmworkflow.ExpandCustomizationSpec(d, family)
-		cw = newVirtualMachineCustomizationWaiter(client, vm, d.Get("clone.0.customize.0.timeout").(int))
-		if err := virtualmachine.Customize(vm, custSpec); err != nil {
-			// Roll back the VMs as per the error handling in reconfigure.
-			if derr := resourceVSphereVirtualMachineDelete(d, meta); derr != nil {
-				return nil, fmt.Errorf(formatVirtualMachinePostCloneRollbackError, vm.InventoryPath, err, derr)
-			}
-			d.SetId("")
-			return nil, fmt.Errorf("error sending customization spec: %s", err)
-		}
-	}
-	// Finally time to power on the virtual machine!
-	//	if err := virtualmachine.PowerOn(vm); err != nil {
-	//		return nil, fmt.Errorf("error powering on virtual machine: %s", err)
-	//	}
-	// If we customized, wait on customization.
-	if cw != nil {
-		log.Printf("[DEBUG] %s: Waiting for VM customization to complete", resourceVSphereVirtualMachineIDString(d))
-		<-cw.Done()
-		if err := cw.Err(); err != nil {
-			return nil, fmt.Errorf(formatVirtualMachineCustomizationWaitError, vm.InventoryPath, err)
-		}
-	}
 	// Clone is complete and ready to return
 	return vm, nil
 }

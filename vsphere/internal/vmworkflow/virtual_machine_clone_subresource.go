@@ -33,16 +33,9 @@ func VirtualMachineCloneSchema() map[string]*schema.Schema {
 			Description: "The UUID of the source virtual machine or template.",
 		},
 		"linked_clone": {
-			Type:          schema.TypeBool,
-			Optional:      true,
-			ConflictsWith: []string{"clone.0.instant_clone"},
-			Description:   "Whether or not to create a linked clone when cloning. When this option is used, the source VM must have a single snapshot associated with it.",
-		},
-		"instant_clone": {
-			Type:          schema.TypeBool,
-			Optional:      true,
-			ConflictsWith: []string{"clone.0.linked_clone"},
-			Description:   "Whether or not to create an instant clone when cloning. When this option is used, the source VM must be in a powered on or quiesced state",
+			Type:        schema.TypeBool,
+			Optional:    true,
+			Description: "Whether or not to create a linked clone when cloning. When this option is used, the source VM must have a single snapshot associated with it.",
 		},
 		"timeout": {
 			Type:         schema.TypeInt,
@@ -57,6 +50,27 @@ func VirtualMachineCloneSchema() map[string]*schema.Schema {
 			MaxItems:    1,
 			Description: "The customization spec for this clone. This allows the user to configure the virtual machine post-clone.",
 			Elem:        &schema.Resource{Schema: VirtualMachineCustomizeSchema()},
+		},
+	}
+}
+
+// VirtualMachineInstantCloneSchema represents the schema for the VM instant clone sub-resource.
+//
+// This is a workflow for vsphere_virtual_machine that facilitates the creation
+// of a virtual machine through instant cloning an existing powered on virtual machine.
+func VirtualMachineInstantCloneSchema() map[string]*schema.Schema {
+	return map[string]*schema.Schema{
+		"source_uuid": {
+			Type:        schema.TypeString,
+			Required:    true,
+			Description: "The UUID of the source virtual machine.",
+		},
+		"timeout": {
+			Type:         schema.TypeInt,
+			Optional:     true,
+			Default:      30,
+			Description:  "The timeout, in minutes, to wait for the virtual machine clone to complete.",
+			ValidateFunc: validation.IntAtLeast(10),
 		},
 	}
 }
@@ -270,7 +284,7 @@ func ExpandVirtualMachineInstantCloneSpec(d *schema.ResourceData, c *govmomi.Cli
 	configSpecs := []types.BaseVirtualDeviceConfigSpec{}
 
 	// Get the hardware devices associated with source vm
-	tUUID := d.Get("clone.0.template_uuid").(string)
+	tUUID := d.Get("instantclone.0.source_uuid").(string)
 	log.Printf("[DEBUG] ExpandVirtualMachineInstantCloneSpec: Cloning from UUID: %s", tUUID)
 	vm, err := virtualmachine.FromUUID(c, tUUID)
 	if err != nil {
