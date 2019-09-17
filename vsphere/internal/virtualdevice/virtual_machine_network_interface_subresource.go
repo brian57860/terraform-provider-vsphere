@@ -552,9 +552,6 @@ func ReadNetworkInterfaces(l object.VirtualDeviceList) ([]map[string]interface{}
 
 		ethernetCard := device.(types.BaseVirtualEthernetCard).GetVirtualEthernetCard()
 
-		m["adapter_type"] = virtualEthernetCardString(device.(types.BaseVirtualEthernetCard))
-		m["mac_address"] = ethernetCard.MacAddress
-
 		// Determine the network from the backing object
 		var networkID string
 
@@ -570,7 +567,11 @@ func ReadNetworkInterfaces(l object.VirtualDeviceList) ([]map[string]interface{}
 		default:
 		}
 
+		// Set properties
+
 		m["network_id"] = networkID
+		m["adapter_type"] = virtualEthernetCardString(device.(types.BaseVirtualEthernetCard))
+		m["mac_address"] = ethernetCard.MacAddress
 
 		out = append(out, m)
 	}
