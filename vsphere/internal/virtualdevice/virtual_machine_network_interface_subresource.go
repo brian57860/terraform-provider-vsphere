@@ -763,7 +763,7 @@ func (r *NetworkInterfaceSubresource) Read(l object.VirtualDeviceList) error {
 			r.Set("bandwidth_limit", card.ResourceAllocation.Limit)
 			r.Set("bandwidth_reservation", card.ResourceAllocation.Reservation)
 			r.Set("bandwidth_share_count", card.ResourceAllocation.Share.Shares)
-			r.Set("bandwidth_share_level", card.ResourceAllocation.Share.Level)
+			r.Set("bandwidth_share_level", string(card.ResourceAllocation.Share.Level))
 		}
 	}
 
