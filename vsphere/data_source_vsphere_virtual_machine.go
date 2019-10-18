@@ -74,6 +74,11 @@ func dataSourceVSphereVirtualMachine() *schema.Resource {
 				Default:     1024,
 				Description: "The size of the virtual machine's memory, in MB.",
 			},
+			"cpu_hot_add_enabled": {
+				Type:        schema.TypeBool,
+				Optional:    true,
+				Description: "Allow CPUs to be added to this virtual machine while it is running.",
+			},
 			"disks": {
 				Type:        schema.TypeList,
 				Description: "Select configuration attributes from the disks on this virtual machine, sorted by bus and unit number.",
@@ -166,6 +171,7 @@ func dataSourceVSphereVirtualMachineRead(d *schema.ResourceData, meta interface{
 	d.Set("num_cpus", props.Config.Hardware.NumCPU)
 	d.Set("num_cores_per_socket", props.Config.Hardware.NumCoresPerSocket)
 	d.Set("memory", props.Config.Hardware.MemoryMB)
+	d.Set("cpu_hot_add_enabled", props.Config.CpuHotAddEnabled)
 
 	disks, err := virtualdevice.ReadDiskAttrsForDataSource(object.VirtualDeviceList(props.Config.Hardware.Device), d.Get("scsi_controller_scan_count").(int))
 	if err != nil {

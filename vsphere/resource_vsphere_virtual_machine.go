@@ -1248,7 +1248,7 @@ func resourceVSphereVirtualMachineCreateClone(d *schema.ResourceData, meta inter
 // resourceVSphereVirtualMachineCreateInstantClone contains the clone VM deploy
 // path. The VM is returned.
 func resourceVSphereVirtualMachineCreateInstantClone(d *schema.ResourceData, meta interface{}) (*object.VirtualMachine, error) {
-	log.Printf("[DEBUG] %s: VM being created from clone", resourceVSphereVirtualMachineIDString(d))
+	log.Printf("[DEBUG] %s: VM being created from instant clone", resourceVSphereVirtualMachineIDString(d))
 	client := meta.(*VSphereClient).vimClient
 
 	// Find the folder based off the path to the resource pool. Basically what we
@@ -1276,18 +1276,15 @@ func resourceVSphereVirtualMachineCreateInstantClone(d *schema.ResourceData, met
 	timeout := d.Get("instantclone.0.timeout").(int)
 	var vm *object.VirtualMachine
 	vm, err = virtualmachine.InstantClone(client, srcVM, fo, name, cloneSpec, timeout)
-
 	if err != nil {
 		return nil, fmt.Errorf("error cloning virtual machine: %s", err)
 	}
 
-	// The VM has been created. We still need to do post-clone configuration, and
-	// while the resource should have an ID until this is done, we need it to go
-	// through post-clone rollback workflows. All rollback functions will remove
-	// the ID after it has done its rollback.
-	//
-	// It's generally safe to not rollback after the initial re-configuration is
-	// fully complete and we move on to sending the customization spec.
+	// The VM has now been created and unlike a linked clone where the re-configuration
+	// takes place prior to the VM being powered-on, an instant clone is already powered-on.
+	// Therefore we only want to power-off and reconfigure the Instant Clone if the state
+	// of the Virtual Machine is different from the resource data, else we lose the shared
+	// memory benefits of the Instant Clone.
 	vprops, err := virtualmachine.Properties(vm)
 	if err != nil {
 		return nil, resourceVSphereVirtualMachineRollbackCreate(
@@ -1300,11 +1297,12 @@ func resourceVSphereVirtualMachineCreateInstantClone(d *schema.ResourceData, met
 	log.Printf("[DEBUG] VM %q - UUID is %q", vm.InventoryPath, vprops.Config.Uuid)
 	d.SetId(vprops.Config.Uuid)
 
-	// Before starting or proceeding any further, we need to normalize the
-	// configuration of the newly cloned VM. This is basically a subset of update
-	// with the stipulation that there is currently no state to help move this
-	// along.
-	cfgSpec, err := expandVirtualMachineConfigSpec(d, client)
+	// Like an update operation, retrieve the differences between the running VM and
+	// the Resource data. However, we have already configured the ExtraConfig when
+	// creating the Instant Clone so need to ignore this setting to prevent a reconfigure
+	// operation from re-booting the VM. Therefore we invoke a modified copy of
+	// expandVirtualMachineConfigSpecChanged which ignores ExtraConfig.
+	cfgSpec, changed, err := expandVirtualMachineInstantCloneConfigSpecChanged(d, client, vprops.Config)
 	if err != nil {
 		return nil, resourceVSphereVirtualMachineRollbackCreate(
 			d,
@@ -1330,6 +1328,7 @@ func resourceVSphereVirtualMachineCreateInstantClone(d *schema.ResourceData, met
 		)
 	}
 	cfgSpec.DeviceChange = virtualdevice.AppendDeviceChangeSpec(cfgSpec.DeviceChange, delta...)
+
 	// Disks
 	devices, delta, err = virtualdevice.DiskPostCloneOperation(d, client, devices)
 	if err != nil {
@@ -1341,6 +1340,7 @@ func resourceVSphereVirtualMachineCreateInstantClone(d *schema.ResourceData, met
 		)
 	}
 	cfgSpec.DeviceChange = virtualdevice.AppendDeviceChangeSpec(cfgSpec.DeviceChange, delta...)
+
 	// Network devices
 	devices, delta, err = virtualdevice.NetworkInterfacePostCloneOperation(d, client, devices)
 	if err != nil {
@@ -1352,6 +1352,7 @@ func resourceVSphereVirtualMachineCreateInstantClone(d *schema.ResourceData, met
 		)
 	}
 	cfgSpec.DeviceChange = virtualdevice.AppendDeviceChangeSpec(cfgSpec.DeviceChange, delta...)
+
 	// CDROM
 	devices, delta, err = virtualdevice.CdromPostCloneOperation(d, client, devices)
 	if err != nil {
@@ -1363,25 +1364,61 @@ func resourceVSphereVirtualMachineCreateInstantClone(d *schema.ResourceData, met
 		)
 	}
 	cfgSpec.DeviceChange = virtualdevice.AppendDeviceChangeSpec(cfgSpec.DeviceChange, delta...)
-	log.Printf("[DEBUG] %s: Final device list: %s", resourceVSphereVirtualMachineIDString(d), virtualdevice.DeviceListString(devices))
-	log.Printf("[DEBUG] %s: Final device change cfgSpec: %s", resourceVSphereVirtualMachineIDString(d), virtualdevice.DeviceChangeString(cfgSpec.DeviceChange))
-
-	// Perform updates
-	if _, ok := d.GetOk("datastore_cluster_id"); ok {
-		err = resourceVSphereVirtualMachineUpdateReconfigureWithSDRS(d, meta, vm, cfgSpec)
-	} else {
-		//		err = virtualmachine.Reconfigure(vm, cfgSpec)
+	// Only carry out the reconfigure if we actually have a change to process.
+	if changed || len(cfgSpec.DeviceChange) > 0 {
+		//Check to see if we need to shutdown the VM for this process.
+		if d.Get("reboot_required").(bool) && vprops.Runtime.PowerState != types.VirtualMachinePowerStatePoweredOff {
+			// Attempt a graceful shutdown of this process. We wrap this in a VM helper.
+			timeout := d.Get("shutdown_wait_timeout").(int)
+			force := d.Get("force_power_off").(bool)
+			if err := virtualmachine.GracefulPowerOff(client, vm, timeout, force); err != nil {
+				return nil, resourceVSphereVirtualMachineRollbackCreate(
+					d,
+					meta,
+					vm,
+					fmt.Errorf("error shutting down virtual machine: %s", err),
+				)
+			}
+		}
+		// Perform updates.
+		if _, ok := d.GetOk("datastore_cluster_id"); ok {
+			err = resourceVSphereVirtualMachineUpdateReconfigureWithSDRS(d, meta, vm, cfgSpec)
+		} else {
+			err = virtualmachine.Reconfigure(vm, cfgSpec)
+		}
+		if err != nil {
+			return nil, resourceVSphereVirtualMachineRollbackCreate(
+				d,
+				meta,
+				vm,
+				fmt.Errorf("error reconfiguring virtual machine: %s", err),
+			)
+		}
+		// Re-fetch properties
+		vprops, err = virtualmachine.Properties(vm)
+		if err != nil {
+			return nil, resourceVSphereVirtualMachineRollbackCreate(
+				d,
+				meta,
+				vm,
+				fmt.Errorf("error re-fetching VM properties after update: %s", err),
+			)
+		}
+		// Power back on the VM, and wait for network if necessary.
+		if vprops.Runtime.PowerState != types.VirtualMachinePowerStatePoweredOn {
+			if err := virtualmachine.PowerOn(vm); err != nil {
+				return nil, resourceVSphereVirtualMachineRollbackCreate(
+					d,
+					meta,
+					vm,
+					fmt.Errorf("error powering on virtual machine: %s", err),
+				)
+			}
+		}
 	}
-	if err != nil {
-		return nil, resourceVSphereVirtualMachineRollbackCreate(
-			d,
-			meta,
-			vm,
-			fmt.Errorf("error reconfiguring virtual machine: %s", err),
-		)
-	}
+	d.Set("reboot_required", false)
 
-	// Clone is complete and ready to return
+	// Instant Clone is complete and ready to return
 	return vm, nil
 }
 

@@ -872,6 +872,45 @@ func expandVirtualMachineConfigSpecChanged(d *schema.ResourceData, client *govmo
 	return newSpec, !reflect.DeepEqual(oldSpec, newSpec), nil
 }
 
+// expandVirtualMachineInstantCloneConfigSpecChanged compares an existing
+// VirtualMachineConfigInfo with a VirtualMachineConfigSpec generated from
+// existing resource data and compares them to see if there is a change. The new spec
+//
+// It does this be creating a fake ResourceData off of the VM resource schema,
+// flattening the config info into that, and then expanding both ResourceData
+// instances and comparing the resultant ConfigSpecs.
+//
+// This is a copy of expandVirtualMachineConfigSpecChanged with the additional
+// requirement that it ignores ExtraConfig, as this has already been configured
+// in the operation to create the Instant Clone.
+func expandVirtualMachineInstantCloneConfigSpecChanged(d *schema.ResourceData, client *govmomi.Client, info *types.VirtualMachineConfigInfo) (types.VirtualMachineConfigSpec, bool, error) {
+	// Create the fake ResourceData from the VM resource
+	oldData := resourceVSphereVirtualMachine().Data(&terraform.InstanceState{})
+	oldData.SetId(d.Id())
+	// Flatten the old config info into it
+	flattenVirtualMachineConfigInfo(oldData, info)
+	// Read state back in. This is necessary to ensure GetChange calls work
+	// correctly.
+	oldData = resourceVSphereVirtualMachine().Data(oldData.State())
+	// Get both specs.
+	log.Printf("[DEBUG] %s: Expanding old config. Ignore reboot_required messages", resourceVSphereVirtualMachineIDString(d))
+	oldSpec, err := expandVirtualMachineConfigSpec(oldData, client)
+	if err != nil {
+		return types.VirtualMachineConfigSpec{}, false, err
+	}
+	log.Printf("[DEBUG] %s: Expanding of old config complete", resourceVSphereVirtualMachineIDString(d))
+
+	newSpec, err := expandVirtualMachineConfigSpec(d, client)
+	if err != nil {
+		return types.VirtualMachineConfigSpec{}, false, err
+	}
+
+	oldSpec.ExtraConfig = newSpec.ExtraConfig
+
+	// Return the new spec and compare
+	return newSpec, !reflect.DeepEqual(oldSpec, newSpec), nil
+}
+
 // getMemoryReservationLockedToMax determines if the memory_reservation is not
 // set to be equal to memory. If they are not equal, then the memory
 // reservation needs to be unlocked from the maximum. Rather than supporting
