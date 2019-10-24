@@ -207,15 +207,17 @@ func dataSourceVSphereVirtualMachineRead(d *schema.ResourceData, meta interface{
 	}
 
 	d.SetId(props.Config.Uuid)
-	d.Set("guest_id", props.Config.GuestId)
 	d.Set("alternate_guest_name", props.Config.AlternateGuestName)
+	d.Set("cpu_hot_add_enabled", props.Config.CpuHotAddEnabled)
+	d.Set("enable_logging", props.Config.Flags.EnableLogging)
+	d.Set("firmware", props.Config.Firmware)
+	d.Set("guest_id", props.Config.GuestId)
+	d.Set("memory", props.Config.Hardware.MemoryMB)
+	d.Set("memory_hot_add_enabled", props.Config.MemoryHotAddEnabled)
+	d.Set("num_cores_per_socket", props.Config.Hardware.NumCoresPerSocket)
+	d.Set("num_cpus", props.Config.Hardware.NumCPU)
 	d.Set("scsi_type", virtualdevice.ReadSCSIBusType(object.VirtualDeviceList(props.Config.Hardware.Device), d.Get("scsi_controller_scan_count").(int)))
 	d.Set("scsi_bus_sharing", virtualdevice.ReadSCSIBusSharing(object.VirtualDeviceList(props.Config.Hardware.Device), d.Get("scsi_controller_scan_count").(int)))
-	d.Set("firmware", props.Config.Firmware)
-	d.Set("num_cpus", props.Config.Hardware.NumCPU)
-	d.Set("num_cores_per_socket", props.Config.Hardware.NumCoresPerSocket)
-	d.Set("memory", props.Config.Hardware.MemoryMB)
-	d.Set("cpu_hot_add_enabled", props.Config.CpuHotAddEnabled)
 
 	disks, err := virtualdevice.ReadDiskAttrsForDataSource(object.VirtualDeviceList(props.Config.Hardware.Device), d.Get("scsi_controller_scan_count").(int))
 	if err != nil {
@@ -237,6 +239,12 @@ func dataSourceVSphereVirtualMachineRead(d *schema.ResourceData, meta interface{
 	}
 	if d.Set("network_interfaces", networkInterfaces); err != nil {
 		return fmt.Errorf("error setting network interfaces: %s", err)
+	}
+	if err := flattenVirtualMachineResourceAllocation(d, props.Config.CpuAllocation, "cpu"); err != nil {
+		return fmt.Errorf("error setting cpu share allocation and limit: %s", err)
+	}
+	if err := flattenVirtualMachineResourceAllocation(d, props.Config.MemoryAllocation, "memory"); err != nil {
+		return fmt.Errorf("error setting memory share allocation and limit: %s", err)
 	}
 	log.Printf("[DEBUG] VM search for %q completed successfully (UUID %q)", name, props.Config.Uuid)
 	return nil
