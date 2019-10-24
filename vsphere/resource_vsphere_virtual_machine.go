@@ -705,6 +705,12 @@ func resourceVSphereVirtualMachineCustomizeDiff(d *schema.ResourceDiff, meta int
 		}
 	}
 
+	if len(d.Get("instantclone").([]interface{})) > 0 {
+		if version.Older(viapi.VSphereVersion{Product: version.Product, Major: 6, Minor: 7}) {
+			return fmt.Errorf("instantclone is only supported on vSphere 6.7 and higher")
+		}
+	}
+
 	// Validate cdrom sub-resources
 	if err := virtualdevice.CdromDiffOperation(d, client); err != nil {
 		return err
@@ -766,6 +772,39 @@ func resourceVSphereVirtualMachineCustomizeDiff(d *schema.ResourceDiff, meta int
 					continue
 				}
 				d.ForceNew(k)
+			}
+		}
+	}
+	// If this is a new resource and we are instant cloning, perform all instant clone validation
+	// operations.
+	if len(d.Get("instantclone").([]interface{})) > 0 {
+		if err := viapi.ValidateVirtualCenter(client); err != nil {
+			return errors.New("use of the instantclone sub-resource block requires vCenter")
+		}
+
+		srcUUID := d.Get("instantclone.0.source_uuid").(string)
+		srcVM, err := virtualmachine.FromUUID(client, srcUUID)
+		if err != nil {
+			return fmt.Errorf("cannot locate source virtual machine with UUID %q: %s", srcUUID, err)
+		}
+		vprops, err := virtualmachine.Properties(srcVM)
+		if err != nil {
+			return fmt.Errorf("error fetching source virtual machine properties: %s", err)
+		}
+		//Check power state of source virtual machine
+		if vprops.Runtime.PowerState != types.VirtualMachinePowerStatePoweredOn {
+			return fmt.Errorf("the source virtual machine must be powered on to create an instant clone")
+		}
+
+		//Check disk length of source virtual machine
+		var diskChainLength int
+		for _, v := range vprops.LayoutEx.File {
+			if v.Type == string(types.VirtualMachineFileLayoutExFileTypeDiskDescriptor) ||
+				v.Type == string(types.VirtualMachineFileLayoutExFileTypeDiskExtent) {
+				diskChainLength++
+			}
+			if diskChainLength > 260 {
+				return fmt.Errorf("the disk chain length on the source virtual machine exceeds the maximum of 255")
 			}
 		}
 	}
