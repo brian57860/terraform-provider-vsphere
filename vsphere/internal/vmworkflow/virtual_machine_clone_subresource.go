@@ -284,13 +284,13 @@ func ExpandVirtualMachineInstantCloneSpec(d *schema.ResourceData, c *govmomi.Cli
 	configSpecs := []types.BaseVirtualDeviceConfigSpec{}
 
 	// Get the hardware devices associated with source vm
-	tUUID := d.Get("instantclone.0.source_uuid").(string)
-	log.Printf("[DEBUG] ExpandVirtualMachineInstantCloneSpec: Cloning from UUID: %s", tUUID)
-	vm, err := virtualmachine.FromUUID(c, tUUID)
+	srcUUID := d.Get("instantclone.0.source_uuid").(string)
+	log.Printf("[DEBUG] ExpandVirtualMachineInstantCloneSpec: Cloning from UUID: %s", srcUUID)
+	srcVM, err := virtualmachine.FromUUID(c, srcUUID)
 	if err != nil {
-		return spec, nil, fmt.Errorf("cannot locate virtual machine or template with UUID %q: %s", tUUID, err)
+		return spec, nil, fmt.Errorf("cannot locate virtual machine or template with UUID %q: %s", srcUUID, err)
 	}
-	vprops, err := virtualmachine.Properties(vm)
+	vprops, err := virtualmachine.Properties(srcVM)
 	if err != nil {
 		return spec, nil, fmt.Errorf("error fetching virtual machine or template properties: %s", err)
 	}
@@ -333,6 +333,14 @@ func ExpandVirtualMachineInstantCloneSpec(d *schema.ResourceData, c *govmomi.Cli
 			virtualEthernetCard := device.(types.BaseVirtualEthernetCard).GetVirtualEthernetCard()
 			virtualEthernetCard.Backing = backing
 
+			bandwidthLimit := int64(n[index].(map[string]interface{})["bandwidth_limit"].(int))
+			bandwidthReservation := int64(n[index].(map[string]interface{})["bandwidth_reservation"].(int))
+
+			virtualEthernetCard.ResourceAllocation.Share.Level = types.SharesLevel(n[index].(map[string]interface{})["bandwidth_share_level"].(string))
+			virtualEthernetCard.ResourceAllocation.Share.Shares = int32(n[index].(map[string]interface{})["bandwidth_share_count"].(int))
+			virtualEthernetCard.ResourceAllocation.Limit = &bandwidthLimit
+			virtualEthernetCard.ResourceAllocation.Reservation = &bandwidthReservation
+
 			// If required then configure a static mac
 			if n[index].(map[string]interface{})["use_static_mac"].(bool) {
 				virtualEthernetCard.MacAddress = n[index].(map[string]interface{})["mac_address"].(string)
@@ -371,5 +379,5 @@ func ExpandVirtualMachineInstantCloneSpec(d *schema.ResourceData, c *govmomi.Cli
 	}
 	spec.Location.Disk = relocators
 	log.Printf("[DEBUG] ExpandVirtualMachineInstantCloneSpec: Instant Clone spec prep complete")
-	return spec, vm, nil
+	return spec, srcVM, nil
 }
