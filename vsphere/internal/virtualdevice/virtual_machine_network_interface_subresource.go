@@ -569,9 +569,13 @@ func ReadNetworkInterfaces(l object.VirtualDeviceList) ([]map[string]interface{}
 
 		// Set properties
 
-		m["network_id"] = networkID
 		m["adapter_type"] = virtualEthernetCardString(device.(types.BaseVirtualEthernetCard))
+		m["bandwidth_limit"] = ethernetCard.ResourceAllocation.Limit
+		m["bandwidth_reservation"] = ethernetCard.ResourceAllocation.Reservation
+		m["bandwidth_share_level"] = ethernetCard.ResourceAllocation.Share.Level
+		m["bandwidth_share_count"] = ethernetCard.ResourceAllocation.Share.Shares
 		m["mac_address"] = ethernetCard.MacAddress
+		m["network_id"] = networkID
 
 		out = append(out, m)
 	}
