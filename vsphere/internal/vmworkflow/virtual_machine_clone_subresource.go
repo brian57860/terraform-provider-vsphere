@@ -308,8 +308,6 @@ func ExpandVirtualMachineInstantCloneSpec(d *schema.ResourceData, c *govmomi.Cli
 
 	//Get network interfaces from resource
 	n := d.Get("network_interface").([]interface{})
-	log.Printf("[DEBUG] Number of devices: %d", len(devices))
-	log.Printf("[DEBUG] Number of networks: %d", len(n))
 
 	// Iterate through network devices and update the backing devices
 	for index, device := range devices {
