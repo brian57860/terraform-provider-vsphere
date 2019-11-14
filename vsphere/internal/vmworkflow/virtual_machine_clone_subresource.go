@@ -349,11 +349,6 @@ func ExpandVirtualMachineInstantCloneSpec(d *schema.ResourceData, c *govmomi.Cli
 				Operation: types.VirtualDeviceConfigSpecOperationEdit,
 				Device:    device,
 			})
-		} else {
-			configSpecs = append(configSpecs, &types.VirtualDeviceConfigSpec{
-				Operation: types.VirtualDeviceConfigSpecOperationRemove,
-				Device:    device,
-			})
 		}
 
 		spec.Location.DeviceChange = configSpecs
