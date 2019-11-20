@@ -884,31 +884,60 @@ func expandVirtualMachineConfigSpecChanged(d *schema.ResourceData, client *govmo
 // requirement that it ignores ExtraConfig, as this has already been configured
 // in the operation to create the Instant Clone.
 func expandVirtualMachineInstantCloneConfigSpecChanged(d *schema.ResourceData, client *govmomi.Client, info *types.VirtualMachineConfigInfo) (types.VirtualMachineConfigSpec, bool, error) {
-	// Create the fake ResourceData from the VM resource
-	oldData := resourceVSphereVirtualMachine().Data(&terraform.InstanceState{})
-	oldData.SetId(d.Id())
-	// Flatten the old config info into it
-	flattenVirtualMachineConfigInfo(oldData, info)
-	// Read state back in. This is necessary to ensure GetChange calls work
-	// correctly.
-	oldData = resourceVSphereVirtualMachine().Data(oldData.State())
-	// Get both specs.
-	log.Printf("[DEBUG] %s: Expanding old config. Ignore reboot_required messages", resourceVSphereVirtualMachineIDString(d))
-	oldSpec, err := expandVirtualMachineConfigSpec(oldData, client)
-	if err != nil {
-		return types.VirtualMachineConfigSpec{}, false, err
+	// Create a fake ResourceData based upon the current state of the Instant Clone Virtual Machine
+	curData := resourceVSphereVirtualMachine().Data(&terraform.InstanceState{})
+	curData.SetId(d.Id())
+	flattenVirtualMachineConfigInfo(curData, info)
+	curData = resourceVSphereVirtualMachine().Data(curData.State())
+
+	// Get current and desired state as a map so we can iterate attributes
+	curMap := curData.State().Attributes
+	newMap := d.State().Attributes
+
+	// Iterate through current state attributes and determine whether the
+	// desired state requires either reconfiguration and/or a reboot
+	reconfigure, reboot := false, false
+
+	for curKey, curVal := range curMap {
+		newVal, ok := newMap[curKey]
+		if ok && curVal != newVal {
+			switch curKey {
+			case "extra_config.%":
+			case "annotation":
+				reconfigure = true
+			case "num_cpus":
+				reconfigure = true
+				if !curData.Get("cpu_hot_add_enabled").(bool) {
+					reboot = true
+					break
+				}
+			case "memory":
+				reconfigure = true
+				if !curData.Get("memory_hot_add_enabled").(bool) {
+					reboot = true
+					break
+				}
+			default:
+				reconfigure = true
+				reboot = true
+				break
+			}
+		}
 	}
-	log.Printf("[DEBUG] %s: Expanding of old config complete", resourceVSphereVirtualMachineIDString(d))
 
-	newSpec, err := expandVirtualMachineConfigSpec(d, client)
-	if err != nil {
-		return types.VirtualMachineConfigSpec{}, false, err
+	newSpec := types.VirtualMachineConfigSpec{}
+	var err error
+
+	if reconfigure {
+		newSpec, err = expandVirtualMachineConfigSpec(d, client)
+		if err != nil {
+			return types.VirtualMachineConfigSpec{}, false, err
+		}
+		d.Set("reboot_required", reboot)
 	}
 
-	oldSpec.ExtraConfig = newSpec.ExtraConfig
-
-	// Return the new spec and compare
-	return newSpec, !reflect.DeepEqual(oldSpec, newSpec), nil
+	// Return the new spec and boolean flag to indicate that reconfigure task is required
+	return newSpec, reconfigure, nil
 }
 
 // getMemoryReservationLockedToMax determines if the memory_reservation is not

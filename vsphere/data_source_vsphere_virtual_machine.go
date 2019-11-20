@@ -23,6 +23,11 @@ func dataSourceVSphereVirtualMachine() *schema.Resource {
 				Description: "The alternate guest name of the virtual machine when guest_id is a non-specific operating system, like otherGuest.",
 				Computed:    true,
 			},
+			"annotation": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				Description: "User-provided description of the virtual machine.",
+			},
 			"cpu_hot_add_enabled": {
 				Type:        schema.TypeBool,
 				Optional:    true,
@@ -208,6 +213,7 @@ func dataSourceVSphereVirtualMachineRead(d *schema.ResourceData, meta interface{
 
 	d.SetId(props.Config.Uuid)
 	d.Set("alternate_guest_name", props.Config.AlternateGuestName)
+	d.Set("annotation", props.Config.Annotation)
 	d.Set("cpu_hot_add_enabled", props.Config.CpuHotAddEnabled)
 	d.Set("enable_logging", props.Config.Flags.EnableLogging)
 	d.Set("firmware", props.Config.Firmware)
