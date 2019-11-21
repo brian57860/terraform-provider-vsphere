@@ -1,4 +1,5 @@
 resource "vsphere_virtual_machine" "vm" {
+    annotation = "${data.vsphere_virtual_machine.source.annotation}"
     count = "${var.number_vms_required}"
     cpu_share_count = "${data.vsphere_virtual_machine.source.cpu_share_count}"
     cpu_share_level = "${data.vsphere_virtual_machine.source.cpu_share_level}"

@@ -872,17 +872,16 @@ func expandVirtualMachineConfigSpecChanged(d *schema.ResourceData, client *govmo
 	return newSpec, !reflect.DeepEqual(oldSpec, newSpec), nil
 }
 
-// expandVirtualMachineInstantCloneConfigSpecChanged compares an existing
-// VirtualMachineConfigInfo with a VirtualMachineConfigSpec generated from
-// existing resource data and compares them to see if there is a change. The new spec
-//
-// It does this be creating a fake ResourceData off of the VM resource schema,
-// flattening the config info into that, and then expanding both ResourceData
-// instances and comparing the resultant ConfigSpecs.
-//
-// This is a copy of expandVirtualMachineConfigSpecChanged with the additional
-// requirement that it ignores ExtraConfig, as this has already been configured
-// in the operation to create the Instant Clone.
+// expandVirtualMachineInstantCloneConfigSpecChanged compares the current state
+// of the newly created Instant Clone with the desired state defined in the plan
+// and then determines whether a reconfiguration and/or a reboot is required to
+// achieve the desired state.
+// It does this by creating a fake ResourceData off of the VM resource schema
+// and flattening the config info into that. It then iterates through the
+// attributes of the current state and determines whether there is a difference
+// in the desired state.
+// Instant Clones are already in a powered on state, so we only want to
+// reboot the VM if necessary, else we will lose the memory sharing benefits.
 func expandVirtualMachineInstantCloneConfigSpecChanged(d *schema.ResourceData, client *govmomi.Client, info *types.VirtualMachineConfigInfo) (types.VirtualMachineConfigSpec, bool, error) {
 	// Create a fake ResourceData based upon the current state of the Instant Clone Virtual Machine
 	curData := resourceVSphereVirtualMachine().Data(&terraform.InstanceState{})

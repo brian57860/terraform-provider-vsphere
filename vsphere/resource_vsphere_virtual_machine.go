@@ -1336,11 +1336,8 @@ func resourceVSphereVirtualMachineCreateInstantClone(d *schema.ResourceData, met
 	log.Printf("[DEBUG] VM %q - UUID is %q", vm.InventoryPath, vprops.Config.Uuid)
 	d.SetId(vprops.Config.Uuid)
 
-	// Like an update operation, retrieve the differences between the running VM and
-	// the Resource data. However, we have already configured the ExtraConfig when
-	// creating the Instant Clone so need to ignore this setting to prevent a reconfigure
-	// operation from re-booting the VM. Therefore we invoke a modified copy of
-	// expandVirtualMachineConfigSpecChanged which ignores ExtraConfig.
+	// Determine whether we need to reconfigure the Instant Clone based on the current and
+	// desired properties
 	cfgSpec, changed, err := expandVirtualMachineInstantCloneConfigSpecChanged(d, client, vprops.Config)
 	if err != nil {
 		return nil, resourceVSphereVirtualMachineRollbackCreate(
