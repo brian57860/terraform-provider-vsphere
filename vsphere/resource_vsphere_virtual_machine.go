@@ -803,7 +803,7 @@ func resourceVSphereVirtualMachineCustomizeDiff(d *schema.ResourceDiff, meta int
 				v.Type == string(types.VirtualMachineFileLayoutExFileTypeDiskExtent) {
 				diskChainLength++
 			}
-			if diskChainLength > 260 {
+			if diskChainLength >= 255 {
 				return fmt.Errorf("the disk chain length on the source virtual machine exceeds the maximum of 255")
 			}
 		}
