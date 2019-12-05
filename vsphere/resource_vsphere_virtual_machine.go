@@ -1400,6 +1400,16 @@ func resourceVSphereVirtualMachineCreateInstantClone(d *schema.ResourceData, met
 		)
 	}
 	cfgSpec.DeviceChange = virtualdevice.AppendDeviceChangeSpec(cfgSpec.DeviceChange, delta...)
+
+	// Check whether any device operations either update or remove devices
+	// in which case we want to perform a reboot
+	for _, deviceChange := range cfgSpec.DeviceChange {
+		if deviceChange.GetVirtualDeviceConfigSpec().Operation != types.VirtualDeviceConfigSpecOperationAdd {
+			d.Set("reboot_required", true)
+			break
+		}
+	}
+
 	// Only carry out the reconfigure if we actually have a change to process.
 	if changed || len(cfgSpec.DeviceChange) > 0 {
 		//Check to see if we need to shutdown the VM for this process.
