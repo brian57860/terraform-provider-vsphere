@@ -7,7 +7,7 @@ vSphere Provider][ref-tf-vsphere].
 
 The purpose of this technology is to create virtual machines which are cloned from the running state of another virtual machine and are therefore identical to the source machine. 
 
-A significant benefit of which is that they share memory and disk space with the virtual machine from which they are cloned; with the potential to rapidly deploy significantly higher numbers of virtual machines given available hardware resources.
+A major benefit of creating Instant Clones is that they share memory and disk space with the virtual machine from which they are cloned; with the potential to rapidly deploy significantly higher numbers of virtual machines given available hardware resources.
 
 However, there are caveats; specifically, any operation on an Instant Clone which results in a reboot will result in the loss of the shared memory benefits. Therefore, in order to preserve shared memory observe the following recommendations:
 
