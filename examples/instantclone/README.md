@@ -1,70 +1,48 @@
 # vSphere Instant Clone Example
 
-This example demonstrates the ability of the [Terraform vSpherevProvider][ref-tf-vsphere] 
-to work with the Instant Clone feature made available in vSphere 6.7
+The following examples demonstrate integration of the Instant Clone technology introduced in vSphere 6.7 with the [Terraform vSphere Provider][ref-tf-vsphere]. 
 
-[ref-tf-vsphere]: https://www.terraform.io/docs/providers/vsphere/index.html
+The purpose of this technology is to create virtual machines which are cloned from the running state of another virtual machine and are therefore identical to the source machine. 
 
-This example performs the following:
+A significant benefit of which is that they share memory and disk space with the virtual machine from which they are cloned; with the potential to rapidly deploy significantly higher numbers of virtual machines given available hardware resources.
 
-* Sets up an NFS datastore across a number of hosts. This uses the
-  [`vsphere_nas_datastore` resource][ref-tf-vsphere-nas-datastore].
-* Sets up a vSphere distributed virtual switch (DVS) across a number of hosts,
-  using the [`vsphere_distributed_virtual_switch` resource][ref-tf-vsphere-dvs].
-* Creates a port group on the created DVS with a configured VLAN, using the
-  [`vsphere_distributed_port_group` resource][ref-tf-vsphere-dvportgroup].
-* Finally, creates a virtual machine using the [`vsphere_virtual_machine`
-  resource][ref-tf-vsphere-virtual-machine] on the above three created
-  resources.
+However, there are caveats; specifically, any operation on an Instant Clone which results in a reboot will result in the loss of the shared memory benefits. Therefore, in order to preserve shared memory observe the following recommendations:
 
-[ref-tf-vsphere-nas-datastore]: https://www.terraform.io/docs/providers/vsphere/r/nas_datastore.html
-[ref-tf-vsphere-dvs]: https://www.terraform.io/docs/providers/vsphere/r/distributed_virtual_switch.html
-[ref-tf-vsphere-dvportgroup]: https://www.terraform.io/docs/providers/vsphere/r/distributed_port_group.html
-[ref-tf-vsphere-virtual-machine]: https://www.terraform.io/docs/providers/vsphere/r/virtual_machine.html
+•	Do not reboot the Instant Clone.
+•	Ensure that mechanisms such as the Distributed Resource Scheduler (DRS) do not automatically migrate the Instant Clone to an alternate host.
+•	Ensure that Terraform does not invoke an operation that requires a reboot.
 
-Several data sources are also used:
+Unfortunately, most operations in the Terraform vSphere Provider which reconfigure a virtual machine will also reboot it. However, there are a number of operations which you can employ that will not result in a reboot, as detailed below:
 
-* [`vsphere_datacenter`][ref-tf-vsphere-datacenter] - To get a datacenter
-* [`vsphere_resource_pool`][ref-tf-vsphere-resource-pool] - To get a resource
-  pool
-* [`vsphere_virtual_machine`][ref-tf-vsphere-vm-data-source] - To get a virtual
-  machine template.
+•	Adding additional hardware such as disks or network interface cards.
+•	Adding additional CPUs if the ‘Enable CPU Hot Add’ setting is enabled.
+•	Adding additional Memory if the ‘Memory Hot Plug’ setting is enabled.
+•	Changing the properties of a Network Interface including the network to which it is connected.
+•	Configuring the Annotation.
 
-[ref-tf-vsphere-datacenter]: https://www.terraform.io/docs/providers/vsphere/d/datacenter.html
-[ref-tf-vsphere-resource-pool]: https://www.terraform.io/docs/providers/vsphere/d/resource_pool.html
-[ref-tf-vsphere-vm-data-source]: https://www.terraform.io/docs/providers/vsphere/d/virtual_machine.html
+The goal is therefore to replicate the configuration of the source virtual machine from which we are cloning in the Terraform plan as closely as possible and the examples provided detail how to achieve this.
+
+## Source Virtual Machine preparation 
+
+An instant clone can be created either from a source virtual machine in a frozen state, or from the current running point of a source virtual machine. 
+
+The principal advantage of cloning from the current running point of a source virtual machine is that guest tools are not required. However, a significant disadvantage is that each clone operation creates a new delta disk on the source virtual machine. Not only can this affect performance, but vSphere only supports a disk chain length of 255; thereafter cloning operations of the source virtual machine will fail.
+
+It is therefore recommended that the source virtual machine is frozen prior to any instant clone operations by issuing the operating system specific VMware Tools command in the guest operating system, i.e. rpctool.exe “instantclone.freeze”
+
+## Examples
+
+Two examples are provided, one that employs dynamic blocks and a second which uses static properties. Dynamic blocks are advantageous in that we can clone source virtual machines with different hardware layouts using a single generic plan; whereas the static example details how to uniquely reference properties of the source vm.
 
 ## Requirements
 
-* A working vCenter installation (vSphere 6.7 or above), as Instant Clone is not supported on ESXi.
+* Instant clone depends on functionality available only in vCenter Server.
 * A running virtual machine from which to clone from.
 
 ## Usage Details
 
-You can either clone the entire
-[terraform-provider-vsphere][ref-tf-vsphere-github] repository, or download the
-`provider.tf`, `variables.tf`, `data_sources.tf`, `resources.tf`, and
-`terraform.tfvars.example` files into a directory of your choice. Once done,
-edit the `terraform.tfvars.example` file, populating the fields with the
-relevant values, and then rename it to `terraform.tfvars`. Don't forget to
-configure your endpoint and credentials by either adding them to the
-`provider.tf` file, or by using enviornment variables. See
-[here][ref-tf-vsphere-provider-settings] for a reference on provider-level
-configuration values.
+1. Configure the vCenter endpoint and credentials by either adding them to the `provider.tf` file or by using the appropriate environment variables.
 
-[ref-tf-vsphere-github]: https://github.com/terraform-providers/terraform-provider-vsphere
-[ref-tf-vsphere-provider-settings]: https://www.terraform.io/docs/providers/vsphere/index.html#argument-reference
+2. Edit the `terraform.tfvars` file and populate the given fields with relevant values.
 
-Once done, run `terraform init`, and `terraform plan` to review the plan, then
-`terraform apply` to execute. If you use Terraform 0.11.0 or higher, you can
-skip `terraform plan` as `terraform apply` will now perform the plan for you and
-ask you confirm the changes.
-
-## Further Reading
-
-This configuration is the working example for [this blog
-post][a-re-introduction-to-the-terraform-vsphere-provider] on the [HashiCorp
-website][hc-website].
-
-[a-re-introduction-to-the-terraform-vsphere-provider]: https://www.hashicorp.com/blog/a-re-introduction-to-the-terraform-vsphere-provider
-[hc-website]: https://www.hashicorp.com/
+3. Execute the plan by invoking the command `terraform apply`
