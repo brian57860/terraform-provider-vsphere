@@ -27,6 +27,7 @@ resource "vsphere_virtual_machine" "vm" {
 
     memory = "${data.vsphere_virtual_machine.source.memory}"
     memory_hot_add_enabled = "${data.vsphere_virtual_machine.source.memory_hot_add_enabled}"
+    memory_limit = "${data.vsphere_virtual_machine.source.memory_limit}"
     memory_share_count = "${data.vsphere_virtual_machine.source.memory_share_count}"
     memory_share_level = "${data.vsphere_virtual_machine.source.memory_share_level}"
     name = "${var.target_vm_prefix}${count.index}"
