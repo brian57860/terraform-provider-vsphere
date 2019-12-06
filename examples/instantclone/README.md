@@ -31,7 +31,9 @@ An instant clone can be created either from a source virtual machine in a frozen
 
 The principal advantage of cloning from the current running point of a source virtual machine is that guest tools are not required. However, a significant disadvantage is that each clone operation creates a new delta disk on the source virtual machine. Not only can this affect performance, but vSphere only supports a disk chain length of 255; thereafter cloning operations of the source virtual machine will fail.
 
-It is therefore recommended that the source virtual machine is frozen prior to any instant clone operations by issuing the operating system specific VMware Tools command in the guest operating system, i.e. rpctool.exe “instantclone.freeze”
+It is therefore recommended that the source virtual machine is frozen prior to any instant clone operations by issuing the operating system specific VMware Tools command in the guest operating system, i.e. rpctool.exe “instantclone.freeze”. 
+
+Note: To unfreeze the guest operating system, reboot the source virtual machine.
 
 ## Examples
 
