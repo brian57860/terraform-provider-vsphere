@@ -1,6 +1,6 @@
 # vSphere Instant Clone Example
 
-The following examples demonstrate integration of the Instant Clone technology introduced in vSphere 6.7 with the [Terraform
+The associated examples demonstrate integration of the Instant Clone technology introduced in vSphere 6.7 with the [Terraform
 vSphere Provider][ref-tf-vsphere].
 
 [ref-tf-vsphere]: https://www.terraform.io/docs/providers/vsphere/index.html
