@@ -1,6 +1,9 @@
 # vSphere Instant Clone Example
 
-The following examples demonstrate integration of the Instant Clone technology introduced in vSphere 6.7 with the [Terraform vSphere Provider][ref-tf-vsphere]. 
+The following examples demonstrate integration of the Instant Clone technology introduced in vSphere 6.7 with the [Terraform
+vSphere Provider][ref-tf-vsphere].
+
+[ref-tf-vsphere]: https://www.terraform.io/docs/providers/vsphere/index.html
 
 The purpose of this technology is to create virtual machines which are cloned from the running state of another virtual machine and are therefore identical to the source machine. 
 
