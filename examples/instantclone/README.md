@@ -8,17 +8,17 @@ A significant benefit of which is that they share memory and disk space with the
 
 However, there are caveats; specifically, any operation on an Instant Clone which results in a reboot will result in the loss of the shared memory benefits. Therefore, in order to preserve shared memory observe the following recommendations:
 
-•	Do not reboot the Instant Clone.
-•	Ensure that mechanisms such as the Distributed Resource Scheduler (DRS) do not automatically migrate the Instant Clone to an alternate host.
-•	Ensure that Terraform does not invoke an operation that requires a reboot.
+*	Do not reboot the Instant Clone.
+*	Ensure that mechanisms such as the Distributed Resource Scheduler (DRS) do not automatically migrate the Instant Clone to an alternate host.
+*	Ensure that Terraform does not invoke an operation that requires a reboot.
 
 Unfortunately, most operations in the Terraform vSphere Provider which reconfigure a virtual machine will also reboot it. However, there are a number of operations which you can employ that will not result in a reboot, as detailed below:
 
-•	Adding additional hardware such as disks or network interface cards.
-•	Adding additional CPUs if the ‘Enable CPU Hot Add’ setting is enabled.
-•	Adding additional Memory if the ‘Memory Hot Plug’ setting is enabled.
-•	Changing the properties of a Network Interface including the network to which it is connected.
-•	Configuring the Annotation.
+*	Adding additional hardware such as disks or network interface cards.
+*	Adding additional CPUs if the ‘Enable CPU Hot Add’ setting is enabled.
+*	Adding additional Memory if the ‘Memory Hot Plug’ setting is enabled.
+*	Changing the properties of a Network Interface including the network to which it is connected.
+*	Configuring the Annotation.
 
 The goal is therefore to replicate the configuration of the source virtual machine from which we are cloning in the Terraform plan as closely as possible and the examples provided detail how to achieve this.
 
