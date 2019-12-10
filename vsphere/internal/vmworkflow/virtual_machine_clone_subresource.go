@@ -341,8 +341,8 @@ func ExpandVirtualMachineInstantCloneSpec(d *schema.ResourceData, c *govmomi.Cli
 
 			// If required then configure a static mac
 			if n[index].(map[string]interface{})["use_static_mac"].(bool) {
-				virtualEthernetCard.MacAddress = n[index].(map[string]interface{})["mac_address"].(string)
 				virtualEthernetCard.AddressType = string(types.VirtualEthernetCardMacTypeManual)
+				virtualEthernetCard.MacAddress = n[index].(map[string]interface{})["mac_address"].(string)
 			} else {
 				virtualEthernetCard.AddressType = ""
 				virtualEthernetCard.MacAddress = ""
