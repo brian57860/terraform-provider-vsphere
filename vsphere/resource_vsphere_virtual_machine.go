@@ -6,8 +6,6 @@ import (
 	"log"
 	"strings"
 
-	"github.com/google/go-cmp/cmp"
-
 	"github.com/hashicorp/terraform/helper/schema"
 	"github.com/hashicorp/terraform/helper/validation"
 	"github.com/terraform-providers/terraform-provider-vsphere/vsphere/internal/helper/customattribute"
@@ -1389,7 +1387,6 @@ func resourceVSphereVirtualMachineCreateInstantClone(d *schema.ResourceData, met
 			fmt.Errorf("error processing network device changes post-clone: %s", err),
 		)
 	}
-	log.Printf("[DEBUG] DELTA %+s\n", cmp.Diff(delta, nil))
 
 	cfgSpec.DeviceChange = virtualdevice.AppendDeviceChangeSpec(cfgSpec.DeviceChange, delta...)
 
