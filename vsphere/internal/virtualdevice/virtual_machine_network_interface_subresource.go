@@ -456,6 +456,7 @@ func NetworkInterfacePostCloneOperation(d *schema.ResourceData, c *govmomi.Clien
 			case "key", "device_address":
 				continue
 			// Skip mac_address and bandwidth_share_count if instantclone
+			// false positives on change are forcing reboot
 			case "mac_address", "bandwidth_share_count":
 				if len(d.Get("instantclone").([]interface{})) > 0 {
 					continue
