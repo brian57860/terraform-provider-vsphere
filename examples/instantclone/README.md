@@ -53,3 +53,5 @@ Two examples are provided, one that employs dynamic blocks and a second which us
 2. Edit the `terraform.tfvars` file and populate the given fields with relevant values.
 
 3. Execute the plan by invoking the command `terraform apply`
+
+4. Check the events for your newly created Instant Clone to ensure that your configuration has not unintentionally implemented a reconfiguration event that has rebooted the virtual machine.

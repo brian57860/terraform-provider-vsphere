@@ -1402,23 +1402,26 @@ func resourceVSphereVirtualMachineCreateInstantClone(d *schema.ResourceData, met
 	}
 	cfgSpec.DeviceChange = virtualdevice.AppendDeviceChangeSpec(cfgSpec.DeviceChange, delta...)
 
-	// Check whether any device operations require a reboot
-	for _, deviceChange := range cfgSpec.DeviceChange {
-		_, cdrom := deviceChange.GetVirtualDeviceConfigSpec().Device.(*types.VirtualCdrom)
-		switch deviceChange.GetVirtualDeviceConfigSpec().Operation {
-		case types.VirtualDeviceConfigSpecOperationAdd:
-			if cdrom {
+	// If we don't currently have any reboot scheduled then
+	// check whether any device operations require one
+	if !d.Get("reboot_required").(bool) {
+		for _, deviceChange := range cfgSpec.DeviceChange {
+			_, cdrom := deviceChange.GetVirtualDeviceConfigSpec().Device.(*types.VirtualCdrom)
+			switch deviceChange.GetVirtualDeviceConfigSpec().Operation {
+			case types.VirtualDeviceConfigSpecOperationAdd:
+				if cdrom {
+					d.Set("reboot_required", true)
+					break
+				}
+			case types.VirtualDeviceConfigSpecOperationEdit:
+				if !cdrom {
+					d.Set("reboot_required", true)
+					break
+				}
+			case types.VirtualDeviceConfigSpecOperationRemove:
 				d.Set("reboot_required", true)
 				break
 			}
-		case types.VirtualDeviceConfigSpecOperationEdit:
-			if !cdrom {
-				d.Set("reboot_required", true)
-				break
-			}
-		case types.VirtualDeviceConfigSpecOperationRemove:
-			d.Set("reboot_required", true)
-			break
 		}
 	}
 
