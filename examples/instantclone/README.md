@@ -23,6 +23,8 @@ Unfortunately, most operations in the Terraform vSphere Provider which reconfigu
 *	Changing the properties of a Network Interface including the network to which it is connected.
 *	Configuring the Annotation.
 
+Note: If you require a CD-ROM device, then add it to the source virtual machine from which you are cloning; as adding a CD-ROM device to a running virtual machine requires a reboot.
+
 The goal is therefore to replicate the configuration of the source virtual machine from which we are cloning in the Terraform plan as closely as possible and the examples provided detail how to achieve this.
 
 ## Source Virtual Machine preparation 
