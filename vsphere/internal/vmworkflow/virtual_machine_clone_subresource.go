@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/google/go-cmp/cmp"
-
 	"github.com/hashicorp/terraform/helper/schema"
 	"github.com/hashicorp/terraform/helper/validation"
 	"github.com/terraform-providers/terraform-provider-vsphere/vsphere/internal/helper/datastore"
@@ -272,7 +270,6 @@ func ExpandVirtualMachineInstantCloneSpec(d *schema.ResourceData, c *govmomi.Cli
 	}
 
 	spec.Name = d.Get("name").(string)
-
 	spec.Location.Folder = types.NewReference(fo.Reference())
 
 	//Set extra configuration data which can be used to supply advanced parameters
@@ -297,10 +294,8 @@ func ExpandVirtualMachineInstantCloneSpec(d *schema.ResourceData, c *govmomi.Cli
 		return spec, nil, fmt.Errorf("error fetching virtual machine or template properties: %s", err)
 	}
 
-	devices := object.VirtualDeviceList(vprops.Config.Hardware.Device)
-
 	// Filter devices of type BaseVirtualEthernetCard
-	log.Printf("[DEBUG] NetworkInterfacePostCloneOperation: Looking for post-clone device changes")
+	devices := object.VirtualDeviceList(vprops.Config.Hardware.Device)
 	devices = devices.Select(func(device types.BaseVirtualDevice) bool {
 		if _, ok := device.(types.BaseVirtualEthernetCard); ok {
 			return true
@@ -309,7 +304,6 @@ func ExpandVirtualMachineInstantCloneSpec(d *schema.ResourceData, c *govmomi.Cli
 	})
 
 	//Get network interfaces from resource
-
 	n := d.Get("network_interface").([]interface{})
 
 	// Iterate through network devices and update the backing devices
@@ -336,27 +330,14 @@ func ExpandVirtualMachineInstantCloneSpec(d *schema.ResourceData, c *govmomi.Cli
 
 			bandwidthLimit := int64(n[index].(map[string]interface{})["bandwidth_limit"].(int))
 			bandwidthReservation := int64(n[index].(map[string]interface{})["bandwidth_reservation"].(int))
-			shareLevel := types.SharesLevel(n[index].(map[string]interface{})["bandwidth_share_level"].(string))
 
-			virtualEthernetCard.ResourceAllocation.Share.Level = shareLevel
-
-			switch shareLevel {
-			case types.SharesLevelHigh:
-				virtualEthernetCard.ResourceAllocation.Share.Shares = 100
-			case types.SharesLevelCustom:
-				virtualEthernetCard.ResourceAllocation.Share.Shares = int32(n[index].(map[string]interface{})["bandwidth_share_count"].(int))
-			case types.SharesLevelLow:
-				virtualEthernetCard.ResourceAllocation.Share.Shares = 25
-			default:
-				virtualEthernetCard.ResourceAllocation.Share.Shares = 50
-			}
-			// if virtualEthernetCard.ResourceAllocation.Share.Level == types.SharesLevelCustom {
-			// 	virtualEthernetCard.ResourceAllocation.Share.Shares = int32(n[index].(map[string]interface{})["bandwidth_share_count"].(int))
-			// }
 			virtualEthernetCard.ResourceAllocation.Limit = &bandwidthLimit
 			virtualEthernetCard.ResourceAllocation.Reservation = &bandwidthReservation
-			log.Printf("[DEBUG] USE STATIC MAC %t", n[index].(map[string]interface{})["use_static_mac"].(bool))
-			log.Printf("[DEBUG] MAC ADDRESS %s", n[index].(map[string]interface{})["mac_address"].(string))
+			virtualEthernetCard.ResourceAllocation.Share.Level = types.SharesLevel(n[index].(map[string]interface{})["bandwidth_share_level"].(string))
+
+			if virtualEthernetCard.ResourceAllocation.Share.Level == types.SharesLevelCustom {
+				virtualEthernetCard.ResourceAllocation.Share.Shares = int32(n[index].(map[string]interface{})["bandwidth_share_count"].(int))
+			}
 
 			// If required then configure a static mac
 			if n[index].(map[string]interface{})["use_static_mac"].(bool) {
@@ -372,7 +353,6 @@ func ExpandVirtualMachineInstantCloneSpec(d *schema.ResourceData, c *govmomi.Cli
 				Device:    device,
 			})
 		}
-		log.Printf("[DEBUG] CLONESPEC DIFF 1 %+s\n", cmp.Diff(configSpecs, nil))
 
 		spec.Location.DeviceChange = configSpecs
 	}
