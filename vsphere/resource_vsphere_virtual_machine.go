@@ -1311,7 +1311,6 @@ func resourceVSphereVirtualMachineCreateInstantClone(d *schema.ResourceData, met
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("[DEBUG] CLONESPEC DIFF %+s\n", cmp.Diff(cloneSpec, nil))
 
 	// Start the clone
 	name := d.Get("name").(string)
