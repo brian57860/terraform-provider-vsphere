@@ -1409,7 +1409,6 @@ func resourceVSphereVirtualMachineCreateInstantClone(d *schema.ResourceData, met
 	// Check whether any device operations either update or remove devices
 	// in which case we want to perform a reboot
 	for _, deviceChange := range cfgSpec.DeviceChange {
-		log.Printf("[DEBUG] BEP DEVICE %q", deviceChange.GetVirtualDeviceConfigSpec().Device.(types.BaseVirtualEthernetCard))
 		if deviceChange.GetVirtualDeviceConfigSpec().Operation != types.VirtualDeviceConfigSpecOperationAdd {
 			d.Set("reboot_required", true)
 			break
