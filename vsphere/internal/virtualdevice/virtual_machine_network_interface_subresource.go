@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/hashicorp/terraform/helper/schema"
 	"github.com/hashicorp/terraform/helper/validation"
 	"github.com/mitchellh/copystructure"
@@ -419,6 +421,7 @@ func NetworkInterfacePostCloneOperation(d *schema.ResourceData, c *govmomi.Clien
 		if err != nil {
 			return nil, nil, fmt.Errorf("%s: error parsing device address: %s", r, err)
 		}
+		log.Printf("[DEBUG] R DATA %+s\n", cmp.Diff(r.Data(), nil))
 		srcSet[idx-networkInterfacePciDeviceOffset] = r.Data()
 	}
 
@@ -450,15 +453,23 @@ func NetworkInterfacePostCloneOperation(d *schema.ResourceData, c *govmomi.Clien
 			return nil, nil, fmt.Errorf("error copying source network interface state data at index %d: %s", i, err)
 		}
 		nm := nc.(map[string]interface{})
+		log.Printf("[DEBUG] CM DATA %+s\n", cmp.Diff(cm, nil))
 		for k, v := range cm {
-			// Skip key and device_address here
 			switch k {
+			// Skip key and device_address here
 			case "key", "device_address":
 				continue
+			// Skip mac_address if instantclone else
+			case "mac_address", "bandwidth_share_count":
+				if len(d.Get("instantclone").([]interface{})) > 0 {
+					continue
+				}
 			}
 			nm[k] = v
 		}
 		r := NewNetworkInterfaceSubresource(c, d, nm, sm, i)
+		log.Printf("[DEBUG] NETWORK DIFF %+s\n", cmp.Diff(nm, sm))
+
 		if !reflect.DeepEqual(sm, nm) {
 			// Update
 			cspec, err := r.Update(l)

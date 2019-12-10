@@ -6,6 +6,8 @@ import (
 	"log"
 	"strings"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/hashicorp/terraform/helper/schema"
 	"github.com/hashicorp/terraform/helper/validation"
 	"github.com/terraform-providers/terraform-provider-vsphere/vsphere/internal/helper/customattribute"
@@ -1309,6 +1311,7 @@ func resourceVSphereVirtualMachineCreateInstantClone(d *schema.ResourceData, met
 	if err != nil {
 		return nil, err
 	}
+	log.Printf("[DEBUG] CLONESPEC DIFF %+s\n", cmp.Diff(cloneSpec, nil))
 
 	// Start the clone
 	name := d.Get("name").(string)
@@ -1387,6 +1390,8 @@ func resourceVSphereVirtualMachineCreateInstantClone(d *schema.ResourceData, met
 			fmt.Errorf("error processing network device changes post-clone: %s", err),
 		)
 	}
+	log.Printf("[DEBUG] DELTA %+s\n", cmp.Diff(delta, nil))
+
 	cfgSpec.DeviceChange = virtualdevice.AppendDeviceChangeSpec(cfgSpec.DeviceChange, delta...)
 
 	// CDROM
@@ -1404,6 +1409,7 @@ func resourceVSphereVirtualMachineCreateInstantClone(d *schema.ResourceData, met
 	// Check whether any device operations either update or remove devices
 	// in which case we want to perform a reboot
 	for _, deviceChange := range cfgSpec.DeviceChange {
+		log.Printf("[DEBUG] BEP DEVICE %q", deviceChange.GetVirtualDeviceConfigSpec().Device.(types.BaseVirtualEthernetCard))
 		if deviceChange.GetVirtualDeviceConfigSpec().Operation != types.VirtualDeviceConfigSpecOperationAdd {
 			d.Set("reboot_required", true)
 			break
