@@ -11,6 +11,7 @@ resource "vsphere_virtual_machine" "vm" {
         size = "${data.vsphere_virtual_machine.source.disks.0.size}"
     }
     
+    enable_disk_uuid = "${data.vsphere_virtual_machine.source.enable_disk_uuid}"
     enable_logging = "${data.vsphere_virtual_machine.source.enable_logging}"
 
     extra_config = {
