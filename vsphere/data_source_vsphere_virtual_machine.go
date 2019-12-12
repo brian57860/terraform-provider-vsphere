@@ -59,6 +59,11 @@ func dataSourceVSphereVirtualMachine() *schema.Resource {
 					},
 				},
 			},
+			"enable_disk_uuid": {
+				Type:        schema.TypeBool,
+				Optional:    true,
+				Description: "Expose the UUIDs of attached virtual disks to the virtual machine, allowing access to them in the guest.",
+			},
 			"enable_logging": {
 				Type:        schema.TypeBool,
 				Optional:    true,
@@ -216,6 +221,7 @@ func dataSourceVSphereVirtualMachineRead(d *schema.ResourceData, meta interface{
 	d.Set("annotation", props.Config.Annotation)
 	d.Set("cpu_hot_add_enabled", props.Config.CpuHotAddEnabled)
 	d.Set("enable_logging", props.Config.Flags.EnableLogging)
+	d.Set("enable_disk_uuid", props.Config.Flags.DiskUuidEnabled)
 	d.Set("firmware", props.Config.Firmware)
 	d.Set("guest_id", props.Config.GuestId)
 	d.Set("memory", props.Config.Hardware.MemoryMB)
