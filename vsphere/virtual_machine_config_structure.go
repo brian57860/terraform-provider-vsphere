@@ -5,8 +5,6 @@ import (
 	"log"
 	"reflect"
 
-	"github.com/google/go-cmp/cmp"
-
 	"github.com/hashicorp/terraform/helper/schema"
 	"github.com/hashicorp/terraform/helper/validation"
 	"github.com/hashicorp/terraform/terraform"
@@ -895,11 +893,6 @@ func expandVirtualMachineInstantCloneConfigSpecChanged(d *schema.ResourceData, c
 	curMap := curData.State().Attributes
 	newMap := d.State().Attributes
 
-	log.Printf("[DEBUG] CURRENT MAP: %s", cmp.Diff(curMap, nil))
-	log.Printf("[DEBUG] NEW MAP: %s", cmp.Diff(newMap, nil))
-	log.Printf("[DEBUG] enable_disk_uuid: %d", d.Get("enable_disk_uuid"))
-	log.Printf("[DEBUG] nested_hv_enabled: %d", d.Get("nested_hv_enabled"))
-
 	// Iterate through current state attributes and determine whether the
 	// desired state requires either reconfiguration and/or a reboot
 	reconfigure, reboot := false, false
@@ -912,28 +905,28 @@ func expandVirtualMachineInstantCloneConfigSpecChanged(d *schema.ResourceData, c
 			newVal = fmt.Sprintf("%v", d.Get(curKey))
 		}
 		if curVal != newVal {
-			log.Printf("[DEBUG] Property change required on key: %s, old value %s, new value %s", curKey, curVal, newVal)
 			switch curKey {
-			case "extra_config.%":
+			case "change_version", "extra_config.%", "uuid":
 			case "annotation":
 				reconfigure = true
 			case "num_cpus":
 				reconfigure = true
 				if !curData.Get("cpu_hot_add_enabled").(bool) {
 					reboot = true
-					break
 				}
 			case "memory":
 				reconfigure = true
 				if !curData.Get("memory_hot_add_enabled").(bool) {
 					reboot = true
-					break
 				}
 			default:
 				reconfigure = true
 				reboot = true
-				break
 			}
+		}
+		if reboot {
+			log.Printf("[DEBUG] Property change on key '%s' requires reboot, old value: %s, new value: %s", curKey, curVal, newVal)
+			break
 		}
 	}
 
