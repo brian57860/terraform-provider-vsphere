@@ -898,29 +898,35 @@ func expandVirtualMachineInstantCloneConfigSpecChanged(d *schema.ResourceData, c
 	reconfigure, reboot := false, false
 
 	for curKey, curVal := range curMap {
+		// get desired value from plan
 		newVal, ok := newMap[curKey]
-		if ok && curVal != newVal {
+		// if no value is set then retrieve default value for key
+		if !ok {
+			newVal = fmt.Sprintf("%v", d.Get(curKey))
+		}
+		if curVal != newVal {
 			switch curKey {
-			case "extra_config.%":
+			case "change_version", "extra_config.%", "uuid":
 			case "annotation":
 				reconfigure = true
 			case "num_cpus":
 				reconfigure = true
 				if !curData.Get("cpu_hot_add_enabled").(bool) {
 					reboot = true
-					break
 				}
 			case "memory":
 				reconfigure = true
 				if !curData.Get("memory_hot_add_enabled").(bool) {
 					reboot = true
-					break
 				}
 			default:
 				reconfigure = true
 				reboot = true
-				break
 			}
+		}
+		if reboot {
+			log.Printf("[DEBUG] Property change on key '%s' requires reboot, old value: %s, new value: %s", curKey, curVal, newVal)
+			break
 		}
 	}
 
