@@ -178,6 +178,12 @@ func dataSourceVSphereVirtualMachine() *schema.Resource {
 				Computed:    true,
 				Description: "The common SCSI bus type of all controllers on the virtual machine.",
 			},
+			"guest_ip_addresses": {
+				Type:        schema.TypeList,
+				Description: "The current list of IP addresses on this virtual machine.",
+				Computed:    true,
+				Elem:        &schema.Schema{Type: schema.TypeString},
+			},
 		},
 	}
 	structure.MergeSchema(r.Schema, schemaVirtualMachineResourceAllocation())
@@ -243,13 +249,13 @@ func dataSourceVSphereVirtualMachineRead(d *schema.ResourceData, meta interface{
 	if err != nil {
 		return fmt.Errorf("error reading network interfaces: %s", err)
 	}
-	if d.Set("disks", disks); err != nil {
+	if err := d.Set("disks", disks); err != nil {
 		return fmt.Errorf("error setting disk sizes: %s", err)
 	}
-	if d.Set("network_interface_types", nics); err != nil {
+	if err := d.Set("network_interface_types", nics); err != nil {
 		return fmt.Errorf("error setting network interface types: %s", err)
 	}
-	if d.Set("network_interfaces", networkInterfaces); err != nil {
+	if err := d.Set("network_interfaces", networkInterfaces); err != nil {
 		return fmt.Errorf("error setting network interfaces: %s", err)
 	}
 	if err := flattenVirtualMachineResourceAllocation(d, props.Config.CpuAllocation, "cpu"); err != nil {
@@ -257,6 +263,11 @@ func dataSourceVSphereVirtualMachineRead(d *schema.ResourceData, meta interface{
 	}
 	if err := flattenVirtualMachineResourceAllocation(d, props.Config.MemoryAllocation, "memory"); err != nil {
 		return fmt.Errorf("error setting memory share allocation and limit: %s", err)
+	}
+	if props.Guest != nil {
+		if err := buildAndSelectGuestIPs(d, *props.Guest); err != nil {
+			return fmt.Errorf("error setting guest IP addresses: %s", err)
+		}
 	}
 	log.Printf("[DEBUG] VM search for %q completed successfully (UUID %q)", name, props.Config.Uuid)
 	return nil

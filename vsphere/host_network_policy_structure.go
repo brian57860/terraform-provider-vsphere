@@ -195,8 +195,10 @@ func flattenHostNicTeamingPolicy(d *schema.ResourceData, obj *types.HostNicTeami
 		d.Set("notify_switches", obj.NotifySwitches)
 	}
 	d.Set("teaming_policy", obj.Policy)
-	if err := flattenHostNicFailureCriteria(d, obj.FailureCriteria); err != nil {
-		return err
+	if obj.FailureCriteria != nil {
+		if err := flattenHostNicFailureCriteria(d, obj.FailureCriteria); err != nil {
+			return err
+		}
 	}
 	if err := flattenHostNicOrderPolicy(d, obj.NicOrder); err != nil {
 		return err
@@ -224,13 +226,13 @@ func expandHostNetworkSecurityPolicy(d *schema.ResourceData) *types.HostNetworkS
 // HostNetworkSecurityPolicy into the passed in ResourceData.
 func flattenHostNetworkSecurityPolicy(d *schema.ResourceData, obj *types.HostNetworkSecurityPolicy) error {
 	if obj.AllowPromiscuous != nil {
-		d.Set("allow_promiscuous", *obj.AllowPromiscuous)
+		d.Set("allow_promiscuous", obj.AllowPromiscuous)
 	}
 	if obj.ForgedTransmits != nil {
-		d.Set("allow_forged_transmits", *obj.ForgedTransmits)
+		d.Set("allow_forged_transmits", obj.ForgedTransmits)
 	}
 	if obj.MacChanges != nil {
-		d.Set("allow_mac_changes", *obj.MacChanges)
+		d.Set("allow_mac_changes", obj.MacChanges)
 	}
 	return nil
 }
@@ -253,7 +255,7 @@ func expandHostNetworkTrafficShapingPolicy(d *schema.ResourceData) *types.HostNe
 // HostNetworkTrafficShapingPolicy into the passed in ResourceData.
 func flattenHostNetworkTrafficShapingPolicy(d *schema.ResourceData, obj *types.HostNetworkTrafficShapingPolicy) error {
 	if obj.Enabled != nil {
-		d.Set("shaping_enabled", *obj.Enabled)
+		d.Set("shaping_enabled", obj.Enabled)
 	}
 	d.Set("shaping_average_bandwidth", obj.AverageBandwidth)
 	d.Set("shaping_burst_size", obj.BurstSize)

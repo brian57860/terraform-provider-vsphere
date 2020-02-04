@@ -154,26 +154,32 @@ func resourceVSphereVAppContainerCreate(d *schema.ResourceData, meta interface{}
 	rpSpec := expandVAppContainerConfigSpec(d)
 	vcSpec := &types.VAppConfigSpec{}
 	var f *object.Folder
-	if pf, ok := d.GetOk("parent_folder_id"); ok {
-		f, err = folder.FromID(client, pf.(string))
-		if err != nil {
-			return err
-		}
+
+	if vappcontainer.IsVApp(client, d.Get("parent_resource_pool_id").(string)) {
+		f = nil
 	} else {
-		p := strings.Split(prp.InventoryPath, "/")
-		if len(p) > 2 {
-			return fmt.Errorf("unable to locate datacenter name from parent resource pool")
-		}
-		var dc *object.Datacenter
-		dc, err = getDatacenter(client, p[1])
-		if err != nil {
-			return err
-		}
-		f, err = folder.FromPath(client, "", folder.VSphereFolderTypeVM, dc)
-		if err != nil {
-			return err
+		if pf, ok := d.GetOk("parent_folder_id"); ok {
+			f, err = folder.FromID(client, pf.(string))
+			if err != nil {
+				return err
+			}
+		} else {
+			p := strings.Split(prp.InventoryPath, "/")
+			if len(p) < 2 {
+				return fmt.Errorf("unable to locate datacenter name from parent resource pool")
+			}
+			var dc *object.Datacenter
+			dc, err = getDatacenter(client, p[1])
+			if err != nil {
+				return err
+			}
+			f, err = folder.FromPath(client, "", folder.VSphereFolderTypeVM, dc)
+			if err != nil {
+				return err
+			}
 		}
 	}
+
 	vc, err := vappcontainer.Create(prp, d.Get("name").(string), rpSpec, vcSpec, f)
 	if err != nil {
 		return err
@@ -211,11 +217,16 @@ func resourceVSphereVAppContainerRead(d *schema.ResourceData, meta interface{}) 
 	if err != nil {
 		return err
 	}
-	if err = d.Set("parent_resource_pool_id", vcProps.Parent.Value); err != nil {
-		return err
+	if vcProps.Parent != nil {
+		if err = d.Set("parent_resource_pool_id", vcProps.Parent.Value); err != nil {
+			return err
+		}
 	}
-	if err = d.Set("parent_folder_id", vcProps.ParentFolder.Value); err != nil {
-		return err
+
+	if vcProps.ParentFolder != nil {
+		if err = d.Set("parent_folder_id", vcProps.ParentFolder.Value); err != nil {
+			return err
+		}
 	}
 	if err = flattenVAppContainerConfigSpec(d, vcProps.Config); err != nil {
 		return err
@@ -341,7 +352,7 @@ func resourceVSphereVAppContainerValidateEmpty(va *object.VirtualApp) error {
 // resourceVSphereVAppContainerApplyTags processes the tags step for both create
 // and update for vsphere_vapp_container.
 func resourceVSphereVAppContainerApplyTags(d *schema.ResourceData, meta interface{}, va *object.VirtualApp) error {
-	tagsClient, err := tagsClientIfDefined(d, meta)
+	tagsClient, err := tagsManagerIfDefined(d, meta)
 	if err != nil {
 		return err
 	}
@@ -359,7 +370,7 @@ func resourceVSphereVAppContainerApplyTags(d *schema.ResourceData, meta interfac
 // resourceVSphereVAppContainerReadTags reads the tags for
 // vsphere_vapp_container.
 func resourceVSphereVAppContainerReadTags(d *schema.ResourceData, meta interface{}, va *object.VirtualApp) error {
-	if tagsClient, _ := meta.(*VSphereClient).TagsClient(); tagsClient != nil {
+	if tagsClient, _ := meta.(*VSphereClient).TagsManager(); tagsClient != nil {
 		log.Printf("[DEBUG] %s: Reading tags", resourceVSphereVAppContainerIDString(d))
 		if err := readTagsForResource(tagsClient, va, d); err != nil {
 			return err

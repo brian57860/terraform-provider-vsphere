@@ -8,6 +8,7 @@ import (
 	"github.com/hashicorp/terraform/helper/schema"
 	"github.com/hashicorp/terraform/helper/validation"
 	"github.com/hashicorp/terraform/terraform"
+	"github.com/terraform-providers/terraform-provider-vsphere/vsphere/internal/helper/spbm"
 	"github.com/terraform-providers/terraform-provider-vsphere/vsphere/internal/helper/structure"
 	"github.com/terraform-providers/terraform-provider-vsphere/vsphere/internal/helper/viapi"
 	"github.com/terraform-providers/terraform-provider-vsphere/vsphere/internal/helper/virtualmachine"
@@ -252,6 +253,7 @@ func schemaVirtualMachineConfigSpec() map[string]*schema.Schema {
 			Type:        schema.TypeMap,
 			Optional:    true,
 			Description: "Extra configuration data for this virtual machine. Can be used to supply advanced parameters not normally in configuration, such as instance metadata, or configuration data for OVF images.",
+			Elem:        &schema.Schema{Type: schema.TypeString},
 		},
 		"vapp": {
 			Type:        schema.TypeList,
@@ -275,6 +277,11 @@ func schemaVirtualMachineConfigSpec() map[string]*schema.Schema {
 			Type:        schema.TypeString,
 			Computed:    true,
 			Description: "The UUID of the virtual machine. Also exposed as the ID of the resource.",
+		},
+		"storage_policy_id": {
+			Type:        schema.TypeString,
+			Optional:    true,
+			Description: "The ID of the storage policy to assign to the virtual machine home directory.",
 		},
 	}
 	structure.MergeSchema(s, schemaVirtualMachineResourceAllocation())
@@ -751,6 +758,16 @@ func expandMemorySizeConfig(d *schema.ResourceData) int64 {
 	return newMem
 }
 
+// expandVirtualMachineProfileSpec reads storage policy ID from ResourceData and
+// returns VirtualMachineProfileSpec.
+func expandVirtualMachineProfileSpec(d *schema.ResourceData) []types.BaseVirtualMachineProfileSpec {
+	if policyID := d.Get("storage_policy_id").(string); policyID != "" {
+		return spbm.PolicySpecByID(policyID)
+	}
+
+	return nil
+}
+
 // expandVirtualMachineConfigSpec reads certain ResourceData keys and
 // returns a VirtualMachineConfigSpec.
 func expandVirtualMachineConfigSpec(d *schema.ResourceData, client *govmomi.Client) (types.VirtualMachineConfigSpec, error) {
@@ -784,6 +801,7 @@ func expandVirtualMachineConfigSpec(d *schema.ResourceData, client *govmomi.Clie
 		NestedHVEnabled:              getBoolWithRestart(d, "nested_hv_enabled"),
 		VPMCEnabled:                  getBoolWithRestart(d, "cpu_performance_counters_enabled"),
 		LatencySensitivity:           expandLatencySensitivity(d),
+		VmProfile:                    expandVirtualMachineProfileSpec(d),
 	}
 
 	return obj, nil

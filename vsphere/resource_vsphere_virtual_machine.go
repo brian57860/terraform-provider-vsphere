@@ -1,10 +1,13 @@
 package vsphere
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/terraform/helper/schema"
 	"github.com/hashicorp/terraform/helper/validation"
@@ -13,6 +16,7 @@ import (
 	"github.com/terraform-providers/terraform-provider-vsphere/vsphere/internal/helper/folder"
 	"github.com/terraform-providers/terraform-provider-vsphere/vsphere/internal/helper/hostsystem"
 	"github.com/terraform-providers/terraform-provider-vsphere/vsphere/internal/helper/resourcepool"
+	"github.com/terraform-providers/terraform-provider-vsphere/vsphere/internal/helper/spbm"
 	"github.com/terraform-providers/terraform-provider-vsphere/vsphere/internal/helper/storagepod"
 	"github.com/terraform-providers/terraform-provider-vsphere/vsphere/internal/helper/structure"
 	"github.com/terraform-providers/terraform-provider-vsphere/vsphere/internal/helper/vappcontainer"
@@ -58,6 +62,8 @@ resource configuration, the resource will need to be tainted before trying
 again. For more information on how to do this, see the following page:
 https://www.terraform.io/docs/commands/taint.html
 `
+
+const questionCheckIntervalSecs = 5
 
 func resourceVSphereVirtualMachine() *schema.Resource {
 	s := map[string]*schema.Schema{
@@ -112,8 +118,22 @@ func resourceVSphereVirtualMachine() *schema.Resource {
 		"ignored_guest_ips": {
 			Type:        schema.TypeList,
 			Optional:    true,
-			Description: "List of IP addresses to ignore while waiting for an IP",
-			Elem:        &schema.Schema{Type: schema.TypeString},
+			Description: "List of IP addresses and CIDR networks to ignore while waiting for an IP",
+			Elem: &schema.Schema{
+				Type: schema.TypeString,
+				ValidateFunc: func(val interface{}, key string) (warns []string, errs []error) {
+					v := val.(string)
+					if strings.Contains(v, "/") {
+						_, _, err := net.ParseCIDR(v)
+						if err != nil {
+							errs = append(errs, fmt.Errorf("%q contains invalid CIDR address: %s", key, v))
+						}
+					} else if net.ParseIP(v) == nil {
+						errs = append(errs, fmt.Errorf("%q contains invalid IP address: %s", key, v))
+					}
+					return
+				},
+			},
 		},
 		"shutdown_wait_timeout": {
 			Type:         schema.TypeInt,
@@ -247,7 +267,7 @@ func resourceVSphereVirtualMachine() *schema.Resource {
 func resourceVSphereVirtualMachineCreate(d *schema.ResourceData, meta interface{}) error {
 	log.Printf("[DEBUG] %s: Beginning create", resourceVSphereVirtualMachineIDString(d))
 	client := meta.(*VSphereClient).vimClient
-	tagsClient, err := tagsClientIfDefined(d, meta)
+	tagsClient, err := tagsManagerIfDefined(d, meta)
 	if err != nil {
 		return err
 	}
@@ -379,7 +399,13 @@ func resourceVSphereVirtualMachineRead(d *schema.ResourceData, meta interface{})
 	}
 	// If the VM is part of a vApp, InventoryPath will point to a host path
 	// rather than a VM path, so this step must be skipped.
-	if !vappcontainer.IsVApp(client, vprops.ResourcePool.Value) {
+	var vmContainer string
+	if vprops.ParentVApp != nil {
+		vmContainer = vprops.ParentVApp.Value
+	} else {
+		vmContainer = vprops.ResourcePool.Value
+	}
+	if !vappcontainer.IsVApp(client, vmContainer) {
 		f, err := folder.RootPathParticleVM.SplitRelativeFolder(vm.InventoryPath)
 		if err != nil {
 			return fmt.Errorf("error parsing virtual machine path %q: %s", vm.InventoryPath, err)
@@ -426,6 +452,13 @@ func resourceVSphereVirtualMachineRead(d *schema.ResourceData, meta interface{})
 		return fmt.Errorf("error reading virtual machine configuration: %s", err)
 	}
 
+	// Read the VM Home storage policy if associated
+	polID, err := spbm.PolicyIDByVirtualMachine(client, moid)
+	if err != nil {
+		return err
+	}
+	d.Set("storage_policy_id", polID)
+
 	// Perform pending device read operations.
 	devices := object.VirtualDeviceList(vprops.Config.Hardware.Device)
 	// Read the state of the SCSI bus.
@@ -445,7 +478,7 @@ func resourceVSphereVirtualMachineRead(d *schema.ResourceData, meta interface{})
 	}
 
 	// Read tags if we have the ability to do so
-	if tagsClient, _ := meta.(*VSphereClient).TagsClient(); tagsClient != nil {
+	if tagsClient, _ := meta.(*VSphereClient).TagsManager(); tagsClient != nil {
 		if err := readTagsForResource(tagsClient, vm, d); err != nil {
 			return err
 		}
@@ -472,7 +505,7 @@ func resourceVSphereVirtualMachineRead(d *schema.ResourceData, meta interface{})
 func resourceVSphereVirtualMachineUpdate(d *schema.ResourceData, meta interface{}) error {
 	log.Printf("[DEBUG] %s: Performing update", resourceVSphereVirtualMachineIDString(d))
 	client := meta.(*VSphereClient).vimClient
-	tagsClient, err := tagsClientIfDefined(d, meta)
+	tagsClient, err := tagsManagerIfDefined(d, meta)
 	if err != nil {
 		return err
 	}
@@ -494,8 +527,39 @@ func resourceVSphereVirtualMachineUpdate(d *schema.ResourceData, meta interface{
 		if err != nil {
 			return err
 		}
-		if err = resourcepool.MoveIntoResourcePool(rp, vm.Reference()); err != nil {
+
+		// Before we move the VM to the new RP we need to make sure the new one is on the same
+		// cluster or host as the old one, otherwise vsphere will throw an error.
+		dstRPProps, err := resourcepool.Properties(rp)
+		if err != nil {
 			return err
+		}
+
+		vmProps, err := virtualmachine.Properties(vm)
+		if err != nil {
+			return err
+		}
+		srcRPID := vmProps.ResourcePool.Value
+		srcResourcePool, err := resourcepool.FromID(client, srcRPID)
+		if err != nil {
+			return err
+		}
+		srcRPProps, err := resourcepool.Properties(srcResourcePool)
+		if err != nil {
+			return err
+		}
+
+		// If the source and destination RPs have different owners (i.e hosts or clusters)
+		// then it will be handled as a vMotion task
+		if dstRPProps.Owner == srcRPProps.Owner {
+			err = resourcepool.MoveIntoResourcePool(rp, vm.Reference())
+			if err != nil {
+				return err
+			}
+		} else {
+			// If we're migrating away from the current host we're setting the host system ID
+			// to nothing. It will be populated after the migration step, once we call Read().
+			d.Set("host_system_id", "")
 		}
 		// If a VM is moved into or out of a vApp container, the VM's InventoryPath
 		// will change. This can affect steps later in the update process such as
@@ -558,12 +622,58 @@ func resourceVSphereVirtualMachineUpdate(d *schema.ResourceData, meta interface{
 				return fmt.Errorf("error shutting down virtual machine: %s", err)
 			}
 		}
+
+		// Start goroutine here that checks for questions
+		gChan := make(chan bool)
+
+		questions := map[string]string{
+			"msg.cdromdisconnect.locked": "0",
+		}
+		go func() {
+			// Sleep for a bit
+			time.Sleep(questionCheckIntervalSecs * time.Second)
+			for {
+				select {
+				case <-gChan:
+					// We're done
+					break
+				default:
+					vprops, err := virtualmachine.Properties(vm)
+					if err != nil {
+						log.Printf("[DEBUG] Error while retrieving VM properties. Error: %s", err)
+						continue
+					}
+					q := vprops.Runtime.Question
+					if q != nil {
+						log.Printf("[DEBUG] Question: %#v", q)
+						if len(q.Message) < 1 {
+							log.Printf("[DEBUG] No messages found")
+							continue
+						}
+						qMsg := q.Message[0].Id
+						if response, ok := questions[qMsg]; ok {
+							if err = vm.Answer(context.TODO(), q.Id, response); err != nil {
+								log.Printf("[DEBUG] Failed to answer question. Error: %s", err)
+								break
+							}
+						}
+					} else {
+						log.Printf("[DEBUG] No questions found")
+					}
+				}
+			}
+		}()
+
 		// Perform updates.
 		if _, ok := d.GetOk("datastore_cluster_id"); ok {
 			err = resourceVSphereVirtualMachineUpdateReconfigureWithSDRS(d, meta, vm, spec)
 		} else {
 			err = virtualmachine.Reconfigure(vm, spec)
 		}
+
+		// Regardless of the result we no longer need to watch for pending questions.
+		gChan <- true
+
 		if err != nil {
 			return fmt.Errorf("error reconfiguring virtual machine: %s", err)
 		}
@@ -1588,9 +1698,9 @@ func resourceVSphereVirtualMachineUpdateLocation(d *schema.ResourceData, meta in
 		if hs, err = hostsystem.FromID(client, hsID); err != nil {
 			return fmt.Errorf("error locating host system at ID %q: %s", hsID, err)
 		}
-	}
-	if err := resourcepool.ValidateHost(client, pool, hs); err != nil {
-		return err
+		if err := resourcepool.ValidateHost(client, pool, hs); err != nil {
+			return err
+		}
 	}
 
 	// Start building the spec
@@ -1598,13 +1708,15 @@ func resourceVSphereVirtualMachineUpdateLocation(d *schema.ResourceData, meta in
 		Pool: types.NewReference(pool.Reference()),
 	}
 
-	// Fetch the datastore
-	if dsID, ok := d.GetOk("datastore_id"); ok {
-		ds, err := datastore.FromID(client, dsID.(string))
-		if err != nil {
-			return fmt.Errorf("error locating datastore for VM: %s", err)
+	// Fetch the datastore only if a datastore_cluster is not set
+	if _, ok := d.GetOk("datastore_cluster_id"); !ok {
+		if dsID, ok := d.GetOk("datastore_id"); ok {
+			ds, err := datastore.FromID(client, dsID.(string))
+			if err != nil {
+				return fmt.Errorf("error locating datastore for VM: %s", err)
+			}
+			spec.Datastore = types.NewReference(ds.Reference())
 		}
-		spec.Datastore = types.NewReference(ds.Reference())
 	}
 
 	if hs != nil {

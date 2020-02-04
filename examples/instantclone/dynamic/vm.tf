@@ -1,13 +1,14 @@
 resource "vsphere_virtual_machine" "vm" {
-    annotation = "${data.vsphere_virtual_machine.source.annotation}"
-    count = "${var.number_vms_required}"
-    cpu_share_count = "${data.vsphere_virtual_machine.source.cpu_share_count}"
-    cpu_share_level = "${data.vsphere_virtual_machine.source.cpu_share_level}"
-    cpu_hot_add_enabled = "${data.vsphere_virtual_machine.source.cpu_hot_add_enabled}"
-    datastore_id = "${data.vsphere_datastore.datastore.id}"
+    alternate_guest_name = data.vsphere_virtual_machine.source.alternate_guest_name
+    annotation = data.vsphere_virtual_machine.source.annotation
+    count = var.number_vms_required
+    cpu_share_count = data.vsphere_virtual_machine.source.cpu_share_count
+    cpu_share_level = data.vsphere_virtual_machine.source.cpu_share_level
+    cpu_hot_add_enabled = data.vsphere_virtual_machine.source.cpu_hot_add_enabled
+    datastore_id = data.vsphere_datastore.datastore.id
 
     dynamic "disk" {
-        for_each = "${data.vsphere_virtual_machine.source.disks}"
+        for_each = data.vsphere_virtual_machine.source.disks
         content {
             eagerly_scrub = disk.value.eagerly_scrub
             label = format("disk%d", disk.key)
@@ -17,26 +18,26 @@ resource "vsphere_virtual_machine" "vm" {
         }
     }
 
-    enable_disk_uuid = "${data.vsphere_virtual_machine.source.enable_disk_uuid}"
-    enable_logging = "${data.vsphere_virtual_machine.source.enable_logging}"
+    enable_disk_uuid = data.vsphere_virtual_machine.source.enable_disk_uuid
+    enable_logging = data.vsphere_virtual_machine.source.enable_logging
 
     extra_config = {
-        "guestinfo.ipaddress" = "192.168.0.${count.index+1}"
-        "guestinfo.netmask" = "255.255.255.0"
+        "guestinfo.ethernet0.ipaddress" = "192.168.0.${count.index+1}"
+        "guestinfo.ethernet0.netmask" = "255.255.255.0"
     }
 
-    folder = "${var.folder}"
-    guest_id = "${data.vsphere_virtual_machine.source.guest_id}"
+    folder = var.folder
+    guest_id = data.vsphere_virtual_machine.source.guest_id
     
     instantclone {
-        source_uuid = "${data.vsphere_virtual_machine.source.id}"
+        source_uuid = data.vsphere_virtual_machine.source.id
     }
 
-    memory = "${data.vsphere_virtual_machine.source.memory}"
-    memory_hot_add_enabled = "${data.vsphere_virtual_machine.source.memory_hot_add_enabled}"
-    memory_limit = "${data.vsphere_virtual_machine.source.memory_limit}"
-    memory_share_count = "${data.vsphere_virtual_machine.source.memory_share_count}"
-    memory_share_level = "${data.vsphere_virtual_machine.source.memory_share_level}"
+    memory = data.vsphere_virtual_machine.source.memory
+    memory_hot_add_enabled = data.vsphere_virtual_machine.source.memory_hot_add_enabled
+    memory_limit = data.vsphere_virtual_machine.source.memory_limit
+    memory_share_count = data.vsphere_virtual_machine.source.memory_share_count
+    memory_share_level = data.vsphere_virtual_machine.source.memory_share_level
     name = "${var.target_vm_prefix}${count.index}"
 
     dynamic "network_interface" {
@@ -53,9 +54,9 @@ resource "vsphere_virtual_machine" "vm" {
         }
     }
 
-    num_cores_per_socket = "${data.vsphere_virtual_machine.source.num_cores_per_socket}"
-    num_cpus = "${data.vsphere_virtual_machine.source.num_cpus}"
-    resource_pool_id = "${data.vsphere_resource_pool.resource_pool.id}"
-    scsi_type = "${data.vsphere_virtual_machine.source.scsi_type}"
+    num_cores_per_socket = data.vsphere_virtual_machine.source.num_cores_per_socket
+    num_cpus = data.vsphere_virtual_machine.source.num_cpus
+    resource_pool_id = data.vsphere_resource_pool.resource_pool.id
+    scsi_type = data.vsphere_virtual_machine.source.scsi_type
     wait_for_guest_net_timeout = "0"
 }

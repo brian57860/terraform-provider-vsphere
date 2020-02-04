@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/terraform/terraform"
 	"github.com/terraform-providers/terraform-provider-vsphere/vsphere/internal/helper/folder"
 	"github.com/terraform-providers/terraform-provider-vsphere/vsphere/internal/helper/hostsystem"
+	"github.com/terraform-providers/terraform-provider-vsphere/vsphere/internal/helper/structure"
 	"github.com/terraform-providers/terraform-provider-vsphere/vsphere/internal/helper/viapi"
 	"github.com/vmware/govmomi/vim25/types"
 )
@@ -35,6 +36,23 @@ func TestAccResourceVSphereComputeCluster_basic(t *testing.T) {
 				Check: resource.ComposeTestCheckFunc(
 					testAccResourceVSphereComputeClusterCheckExists(true),
 					testAccResourceVSphereComputeClusterCheckDRSEnabled(false),
+				),
+			},
+			{
+				ResourceName:      "vsphere_compute_cluster.compute_cluster",
+				ImportState:       true,
+				ImportStateVerify: true,
+				ImportStateIdFunc: func(s *terraform.State) (string, error) {
+					cluster, err := testGetComputeCluster(s, "compute_cluster")
+					if err != nil {
+						return "", err
+					}
+					return cluster.InventoryPath, nil
+				},
+				ImportStateVerifyIgnore: []string{"force_evacuate_on_destroy"},
+				Config:                  testAccResourceVSphereComputeClusterConfigBasic(),
+				Check: resource.ComposeTestCheckFunc(
+					testAccResourceVSphereComputeClusterCheckExists(true),
 				),
 			},
 		},
@@ -99,16 +117,6 @@ func TestAccResourceVSphereComputeCluster_explicitFailoverHost(t *testing.T) {
 					testAccResourceVSphereComputeClusterCheckHAEnabled(true),
 					testAccResourceVSphereComputeClusterCheckAdmissionControlMode(clusterAdmissionControlTypeFailoverHosts),
 					testAccResourceVSphereComputeClusterCheckAdmissionControlFailoverHost(os.Getenv("VSPHERE_ESXI_HOST4")),
-				),
-			},
-			{
-				// This step is required to remove the dedicated failover host in
-				// admission control - otherwise cleanup will fail.
-				Config: testAccResourceVSphereComputeClusterConfigDRSHABasic(),
-				Check: resource.ComposeTestCheckFunc(
-					testAccResourceVSphereComputeClusterCheckExists(true),
-					testAccResourceVSphereComputeClusterCheckDRSEnabled(true),
-					testAccResourceVSphereComputeClusterCheckHAEnabled(true),
 				),
 			},
 		},
@@ -345,41 +353,6 @@ func TestAccResourceVSphereComputeCluster_createVM(t *testing.T) {
 	})
 }
 
-func TestAccResourceVSphereComputeCluster_import(t *testing.T) {
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			testAccResourceVSphereComputeClusterPreCheck(t)
-		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccResourceVSphereComputeClusterCheckExists(false),
-		Steps: []resource.TestStep{
-			{
-				Config: testAccResourceVSphereComputeClusterConfigEmpty(),
-				Check: resource.ComposeTestCheckFunc(
-					testAccResourceVSphereComputeClusterCheckExists(true),
-				),
-			},
-			{
-				ResourceName:      "vsphere_compute_cluster.compute_cluster",
-				ImportState:       true,
-				ImportStateVerify: true,
-				ImportStateIdFunc: func(s *terraform.State) (string, error) {
-					cluster, err := testGetComputeCluster(s, "compute_cluster")
-					if err != nil {
-						return "", err
-					}
-					return cluster.InventoryPath, nil
-				},
-				Config: testAccResourceVSphereComputeClusterConfigEmpty(),
-				Check: resource.ComposeTestCheckFunc(
-					testAccResourceVSphereComputeClusterCheckExists(true),
-				),
-			},
-		},
-	})
-}
-
 func testAccResourceVSphereComputeClusterPreCheck(t *testing.T) {
 	if os.Getenv("VSPHERE_DATACENTER") == "" {
 		t.Skip("set VSPHERE_DATACENTER to run vsphere_compute_cluster acceptance tests")
@@ -499,6 +472,11 @@ func testAccResourceVSphereComputeClusterCheckAdmissionControlFailoverHost(expec
 		if expected != actual {
 			return fmt.Errorf("expected failover host name to be %s, got %s", expected, actual)
 		}
+
+		if failoverHostsPolicy.ResourceReductionToToleratePercent != structure.Int32Ptr(0) {
+			return fmt.Errorf("expected ha_admission_control_performance_tolerance be 0, got %d", failoverHostsPolicy.ResourceReductionToToleratePercent)
+		}
+
 		return nil
 	}
 }
@@ -556,7 +534,7 @@ func testAccResourceVSphereComputeClusterCheckTags(tagResName string) resource.T
 		if err != nil {
 			return err
 		}
-		tagsClient, err := testAccProvider.Meta().(*VSphereClient).TagsClient()
+		tagsClient, err := testAccProvider.Meta().(*VSphereClient).TagsManager()
 		if err != nil {
 			return err
 		}
@@ -745,6 +723,7 @@ resource "vsphere_compute_cluster" "compute_cluster" {
   ha_enabled                                    = true
   ha_admission_control_policy                   = "failoverHosts"
   ha_admission_control_failover_host_system_ids = "${data.vsphere_host.hosts.*.id}"
+  ha_admission_control_performance_tolerance    = 0
 
   force_evacuate_on_destroy = true
 }

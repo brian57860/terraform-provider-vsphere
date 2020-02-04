@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"context"
+
 	"github.com/hashicorp/terraform/helper/acctest"
 	"github.com/hashicorp/terraform/helper/resource"
 	"github.com/hashicorp/terraform/terraform"
@@ -43,6 +44,11 @@ func TestAccResourceVSphereVirtualDisk_multi(t *testing.T) {
 			testAccResourceVSphereVirtualDiskPreCheck(t)
 		},
 		Providers: testAccProviders,
+		CheckDestroy: resource.ComposeTestCheckFunc(
+			testAccVSphereVirtualDiskExists("vsphere_virtual_disk.foo.0", false),
+			testAccVSphereVirtualDiskExists("vsphere_virtual_disk.foo.1", false),
+			testAccVSphereVirtualDiskExists("vsphere_virtual_disk.foo.2", false),
+		),
 		Steps: []resource.TestStep{
 			{
 				Config: testAccCheckVSphereVirtuaDiskConfig_multi(rString),
@@ -65,6 +71,11 @@ func TestAccResourceVSphereVirtualDisk_multiWithParent(t *testing.T) {
 			testAccResourceVSphereVirtualDiskPreCheck(t)
 		},
 		Providers: testAccProviders,
+		CheckDestroy: resource.ComposeTestCheckFunc(
+			testAccVSphereVirtualDiskExists("vsphere_virtual_disk.foo.0", false),
+			testAccVSphereVirtualDiskExists("vsphere_virtual_disk.foo.1", false),
+			testAccVSphereVirtualDiskExists("vsphere_virtual_disk.foo.2", false),
+		),
 		Steps: []resource.TestStep{
 			{
 				Config: testAccCheckVSphereVirtuaDiskConfig_multiWithParent(rString),

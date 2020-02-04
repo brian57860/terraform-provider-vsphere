@@ -1,4 +1,6 @@
--include $(HOME)/.tf-vsphere-devrc.mk
+CFG ?= $(HOME)/.tf-vsphere-devrc.mk
+
+-include $(CFG)
 
 TEST?=$$(go list ./... |grep -v 'vendor')
 GOFMT_FILES?=$$(find . -name '*.go' |grep -v vendor)
@@ -7,6 +9,9 @@ PKG_NAME=vsphere
 
 
 default: build
+
+envvars:
+	@cat ~/.tf-vsphere-devrc.mk | sed -e "s/\?=/=/g" -e "s/ *= */=/g"
 
 build: fmtcheck
 	go install
@@ -33,6 +38,9 @@ vet:
 
 fmt:
 	gofmt -w $(GOFMT_FILES)
+
+docscheck:
+	@sh -c "'$(CURDIR)/scripts/docscheck.sh'"
 
 fmtcheck:
 	@sh -c "'$(CURDIR)/scripts/gofmtcheck.sh'"
@@ -62,5 +70,5 @@ ifeq (,$(wildcard $(GOPATH)/src/$(WEBSITE_REPO)))
 endif
 	@$(MAKE) -C $(GOPATH)/src/$(WEBSITE_REPO) website-provider-test PROVIDER_PATH=$(shell pwd) PROVIDER_NAME=$(PKG_NAME)
 
-.PHONY: build test testacc vet fmt fmtcheck errcheck test-compile website website-test
+.PHONY: build test testacc vet docscheck fmt fmtcheck errcheck test-compile website website-test
 

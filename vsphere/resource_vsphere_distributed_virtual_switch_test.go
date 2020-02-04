@@ -30,6 +30,23 @@ func TestAccResourceVSphereDistributedVirtualSwitch_basic(t *testing.T) {
 					testAccResourceVSphereDistributedVirtualSwitchExists(true),
 				),
 			},
+			{
+				ResourceName:            "vsphere_distributed_virtual_switch.dvs",
+				ImportState:             true,
+				ImportStateVerify:       true,
+				ImportStateVerifyIgnore: []string{"vlan_range"},
+				ImportStateIdFunc: func(s *terraform.State) (string, error) {
+					dvs, err := testGetDVS(s, "dvs")
+					if err != nil {
+						return "", err
+					}
+					return dvs.InventoryPath, nil
+				},
+				Config: testAccResourceVSphereDistributedVirtualSwitchConfig(),
+				Check: resource.ComposeTestCheckFunc(
+					testAccResourceVSphereDistributedVirtualSwitchExists(true),
+				),
+			},
 		},
 	})
 }
@@ -345,42 +362,6 @@ func TestAccResourceVSphereDistributedVirtualSwitch_vlanRanges(t *testing.T) {
 	})
 }
 
-func TestAccResourceVSphereDistributedVirtualSwitch_import(t *testing.T) {
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			testAccResourceVSphereDistributedVirtualSwitchPreCheck(t)
-		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccResourceVSphereDistributedVirtualSwitchExists(false),
-		Steps: []resource.TestStep{
-			{
-				Config: testAccResourceVSphereDistributedVirtualSwitchConfig(),
-				Check: resource.ComposeTestCheckFunc(
-					testAccResourceVSphereDistributedVirtualSwitchExists(true),
-				),
-			},
-			{
-				ResourceName:            "vsphere_distributed_virtual_switch.dvs",
-				ImportState:             true,
-				ImportStateVerify:       true,
-				ImportStateVerifyIgnore: []string{"vlan_range"},
-				ImportStateIdFunc: func(s *terraform.State) (string, error) {
-					dvs, err := testGetDVS(s, "dvs")
-					if err != nil {
-						return "", err
-					}
-					return dvs.InventoryPath, nil
-				},
-				Config: testAccResourceVSphereDistributedVirtualSwitchConfig(),
-				Check: resource.ComposeTestCheckFunc(
-					testAccResourceVSphereDistributedVirtualSwitchExists(true),
-				),
-			},
-		},
-	})
-}
-
 func TestAccResourceVSphereDistributedVirtualSwitch_singleCustomAttribute(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		PreCheck: func() {
@@ -629,7 +610,7 @@ func testAccResourceVSphereDistributedVirtualSwitchCheckTags(tagResName string) 
 		if err != nil {
 			return err
 		}
-		tagsClient, err := testAccProvider.Meta().(*VSphereClient).TagsClient()
+		tagsClient, err := testAccProvider.Meta().(*VSphereClient).TagsManager()
 		if err != nil {
 			return err
 		}

@@ -1,4 +1,5 @@
 ---
+subcategory: "Virtual Machine"
 layout: "vsphere"
 page_title: "VMware vSphere: vsphere_virtual_machine"
 sidebar_current: "docs-vsphere-resource-vm-virtual-machine-resource"
@@ -512,6 +513,8 @@ requires vCenter 6.0 or higher.
 ~> **NOTE:** Custom attributes are unsupported on direct ESXi connections 
 and require vCenter.
 
+* `storage_policy_id` - (Optional) The UUID of the storage policy to assign to VM home directory.
+
 ### CPU and memory options
 
 The following options control CPU and memory settings on the virtual machine:
@@ -655,10 +658,10 @@ amount of memory provisioned for the virtual machine.
   only be used if your version of VMware Tools does not allow the
   [`wait_for_guest_net_timeout`](#wait_for_guest_net_timeout) waiter to be
   used. A value less than 1 disables the waiter. Default: 0.
-* `ignored_guest_ips` - (Optional) List of IP addresses to ignore while waiting
-  for an available IP address using either of the waiters. Any IP addresses in
-  this list will be ignored if they show up so that the waiter will continue to
-  wait for a real IP address. Default: [].
+* `ignored_guest_ips` - (Optional) List of IP addresses and CIDR networks to
+  ignore while waiting for an available IP address using either of the waiters.
+  Any IP addresses in this list will be ignored if they show up so that the
+  waiter will continue to wait for a real IP address. Default: [].
 * `shutdown_wait_timeout` - (Optional) The amount of time, in minutes, to wait
   for a graceful guest shutdown when making necessary updates to the virtual
   machine. If `force_power_off` is set to true, the VM will be force powered-off
@@ -796,6 +799,7 @@ externally with `attach` when the `path` field is not specified.
   be one of `low`, `normal`, `high`, or `custom`. Default: `normal`.
 * `io_share_count` - (Optional) The share count for this disk when the share
   level is `custom`.
+* `storage_policy_id` - (Optional) The UUID of the storage policy to assign to this disk.
 
 #### Computed disk attributes
 

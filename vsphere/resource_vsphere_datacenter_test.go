@@ -1,11 +1,11 @@
 package vsphere
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"testing"
 
-	"context"
 	"github.com/hashicorp/terraform/helper/resource"
 	"github.com/hashicorp/terraform/terraform"
 	"github.com/vmware/govmomi/find"
@@ -340,7 +340,7 @@ func testAccResourceVSphereDatacenterCheckTags(tagResName string) resource.TestC
 		if err != nil {
 			return err
 		}
-		tagsClient, err := testAccProvider.Meta().(*VSphereClient).TagsClient()
+		tagsClient, err := testAccProvider.Meta().(*VSphereClient).TagsManager()
 		if err != nil {
 			return err
 		}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/terraform-providers/terraform-provider-vsphere/vsphere/internal/helper/folder"
@@ -21,6 +22,8 @@ import (
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
 )
+
+const powerOnWaitMilli = 500
 
 var errGuestShutdownTimeout = errors.New("the VM did not power off within the specified amount of time")
 
@@ -357,14 +360,54 @@ func skipIPAddrForWaiter(ip net.IP, ignoredGuestIPs []interface{}) bool {
 	case ip.IsMulticast():
 		return true
 	default:
+		// ignoredGuestIPs pre-validated by Schema!
 		for _, ignoredGuestIP := range ignoredGuestIPs {
-			if ip.String() == ignoredGuestIP.(string) {
+			if strings.Contains(ignoredGuestIP.(string), "/") {
+				_, ignoredIPNet, _ := net.ParseCIDR(ignoredGuestIP.(string))
+				if ignoredIPNet.Contains(ip) {
+					return true
+				}
+			} else if net.ParseIP(ignoredGuestIP.(string)).Equal(ip) {
 				return true
 			}
 		}
 	}
 
 	return false
+}
+
+func blockUntilReadyForMethod(method string, vm *object.VirtualMachine, waitFor time.Duration) error {
+	log.Printf("[DEBUG] blockUntilReadyForMethod: Going to block until %q is no longer in the Disabled Methods list for vm %s", method, vm.Reference().Value)
+	ctx, cancel := context.WithTimeout(context.TODO(), waitFor)
+	defer cancel()
+
+	for {
+		vprops, err := Properties(vm)
+		if err != nil {
+			return fmt.Errorf("cannot fetch properties of created virtual machine: %s", err)
+		}
+		stillPending := false
+		for _, methodName := range vprops.DisabledMethod {
+			if methodName == method {
+				stillPending = true
+				break
+			}
+		}
+
+		if !stillPending {
+			log.Printf("[DEBUG] blockUntilReadyForMethod: %q no longer disabled for vm %s", method, vm.Reference().Value)
+			break
+		}
+
+		select {
+		case <-time.After(5 * time.Second):
+			log.Printf("[DEBUG] blockUntilReadyForMethod: %q still disabled for vm %s, about to check again", method, vm.Reference().Value)
+		case <-ctx.Done():
+			return fmt.Errorf("blockUntilReadyForMethod: timed out while waiting for %q to become available for vm %s", method, vm.Reference().Value)
+		}
+	}
+
+	return nil
 }
 
 // Create wraps the creation of a virtual machine and the subsequent waiting of
@@ -465,6 +508,19 @@ func PowerOn(vm *object.VirtualMachine) error {
 	log.Printf("[DEBUG] Powering on virtual machine %q", vm.InventoryPath)
 	ctx, cancel := context.WithTimeout(context.Background(), provider.DefaultAPITimeout)
 	defer cancel()
+
+	err := blockUntilReadyForMethod("PowerOnVM_Task", vm, provider.DefaultAPITimeout)
+	if err != nil {
+		return err
+	}
+
+	// This is the controversial part. Although we take every precaution to make sure the VM
+	// is in a state that can be started we have noticed that vsphere will randomly fail to
+	// power on the vm with "InvalidState" errors.
+	//
+	// We're adding a small delay here to avoid this issue.
+	time.Sleep(powerOnWaitMilli * time.Millisecond)
+
 	task, err := vm.PowerOn(ctx)
 	if err != nil {
 		return err

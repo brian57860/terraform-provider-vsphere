@@ -182,6 +182,7 @@ func resourceVSphereDatastoreCluster() *schema.Resource {
 				Type:        schema.TypeMap,
 				Optional:    true,
 				Description: "Advanced configuration options for storage DRS.",
+				Elem:        &schema.Schema{Type: schema.TypeString},
 			},
 			vSphereTagAttributeKey:    tagsSchema(),
 			customattribute.ConfigKey: customattribute.ConfigSchema(),
@@ -343,7 +344,7 @@ func resourceVSphereDatastoreClusterApplyCreate(d *schema.ResourceData, meta int
 // resourceVSphereDatastoreClusterApplyTags processes the tags step for both
 // create and update for vsphere_datastore_cluster.
 func resourceVSphereDatastoreClusterApplyTags(d *schema.ResourceData, meta interface{}, pod *object.StoragePod) error {
-	tagsClient, err := tagsClientIfDefined(d, meta)
+	tagsClient, err := tagsManagerIfDefined(d, meta)
 	if err != nil {
 		return err
 	}
@@ -361,7 +362,7 @@ func resourceVSphereDatastoreClusterApplyTags(d *schema.ResourceData, meta inter
 // resourceVSphereDatastoreClusterReadTags reads the tags for
 // vsphere_datastore_cluster.
 func resourceVSphereDatastoreClusterReadTags(d *schema.ResourceData, meta interface{}, pod *object.StoragePod) error {
-	if tagsClient, _ := meta.(*VSphereClient).TagsClient(); tagsClient != nil {
+	if tagsClient, _ := meta.(*VSphereClient).TagsManager(); tagsClient != nil {
 		log.Printf("[DEBUG] %s: Reading tags", resourceVSphereDatastoreClusterIDString(d))
 		if err := readTagsForResource(tagsClient, pod, d); err != nil {
 			return err

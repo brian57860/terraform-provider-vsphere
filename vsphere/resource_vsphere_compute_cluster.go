@@ -214,6 +214,7 @@ func resourceVSphereComputeCluster() *schema.Resource {
 				Type:        schema.TypeMap,
 				Optional:    true,
 				Description: "Advanced configuration options for DRS and DPM.",
+				Elem:        &schema.Schema{Type: schema.TypeString},
 			},
 			// HA - General
 			"ha_enabled": {
@@ -416,6 +417,7 @@ func resourceVSphereComputeCluster() *schema.Resource {
 				Type:        schema.TypeMap,
 				Optional:    true,
 				Description: "Advanced configuration options for vSphere HA.",
+				Elem:        &schema.Schema{Type: schema.TypeString},
 			},
 			// Proactive HA
 			"proactive_ha_enabled": {
@@ -578,6 +580,26 @@ func resourceVSphereComputeClusterDelete(d *schema.ResourceData, meta interface{
 		return err
 	}
 
+	client, err := resourceVSphereComputeClusterClient(meta)
+	if err != nil {
+		return err
+	}
+
+	version := viapi.ParseVersionFromClient(client)
+	spec := expandClusterConfigSpecEx(d, version)
+
+	if *spec.DasConfig.Enabled && *spec.DasConfig.AdmissionControlEnabled {
+		switch v := spec.DasConfig.AdmissionControlPolicy.(type) {
+		case *types.ClusterFailoverHostAdmissionControlPolicy:
+			_ = v
+			log.Printf("[DEBUG] if Admission Control Policy set to Failover Host than turn HA OFF before removing hosts")
+			spec.DasConfig.Enabled = structure.BoolPtr(false)
+			if err := clustercomputeresource.Reconfigure(cluster, spec); err != nil {
+				return err
+			}
+		}
+	}
+
 	if err := resourceVSphereComputeClusterDeleteProcessForceRemoveHosts(d, meta, cluster); err != nil {
 		return err
 	}
@@ -603,6 +625,11 @@ func resourceVSphereComputeClusterImport(d *schema.ResourceData, meta interface{
 
 	d.SetId(cluster.Reference().Value)
 	if err := resourceVSphereComputeClusterImportSetDefaults(d); err != nil {
+		return nil, err
+	}
+
+	err = resourceVSphereComputeClusterRead(d, meta)
+	if err != nil {
 		return nil, err
 	}
 
@@ -784,7 +811,7 @@ func resourceVSphereComputeClusterApplyClusterConfiguration(
 // resourceVSphereComputeClusterApplyTags processes the tags step for both
 // create and update for vsphere_compute_cluster.
 func resourceVSphereComputeClusterApplyTags(d *schema.ResourceData, meta interface{}, cluster *object.ClusterComputeResource) error {
-	tagsClient, err := tagsClientIfDefined(d, meta)
+	tagsClient, err := tagsManagerIfDefined(d, meta)
 	if err != nil {
 		return err
 	}
@@ -802,7 +829,7 @@ func resourceVSphereComputeClusterApplyTags(d *schema.ResourceData, meta interfa
 // resourceVSphereComputeClusterReadTags reads the tags for
 // vsphere_compute_cluster.
 func resourceVSphereComputeClusterReadTags(d *schema.ResourceData, meta interface{}, cluster *object.ClusterComputeResource) error {
-	if tagsClient, _ := meta.(*VSphereClient).TagsClient(); tagsClient != nil {
+	if tagsClient, _ := meta.(*VSphereClient).TagsManager(); tagsClient != nil {
 		log.Printf("[DEBUG] %s: Reading tags", resourceVSphereComputeClusterIDString(d))
 		if err := readTagsForResource(tagsClient, cluster, d); err != nil {
 			return err
@@ -1131,6 +1158,11 @@ func resourceVSphereComputeClusterFlattenData(
 		return err
 	}
 
+	hostList := []string{}
+	for _, host := range props.Host {
+		hostList = append(hostList, host.Value)
+	}
+	d.Set("host_system_ids", hostList)
 	return flattenClusterConfigSpecEx(d, props.ConfigurationEx.(*types.ClusterConfigInfoEx), version)
 }
 
@@ -1276,7 +1308,7 @@ func expandBaseClusterDasAdmissionControlPolicy(
 	}
 
 	if version.Newer(viapi.VSphereVersion{Product: version.Product, Major: 6, Minor: 5}) {
-		obj.GetClusterDasAdmissionControlPolicy().ResourceReductionToToleratePercent = int32(d.Get("ha_admission_control_host_failure_tolerance").(int))
+		obj.GetClusterDasAdmissionControlPolicy().ResourceReductionToToleratePercent = structure.Int32Ptr(int32(d.Get("ha_admission_control_performance_tolerance").(int)))
 	}
 
 	return obj

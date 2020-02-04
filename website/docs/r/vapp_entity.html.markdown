@@ -1,4 +1,5 @@
 ---
+subcategory: "Virtual Machine"
 layout: "vsphere"
 page_title: "VMware vSphere: vsphere_vapp_entity"
 sidebar_current: "docs-vsphere-resource-compute-vapp-entity"
@@ -56,13 +57,13 @@ resource "vsphere_vapp_container" "vapp_container" {
 }
 
 resource "vsphere_vapp_entity" "vapp_entity" {
-  target_id    = "vsphere_virtual_machine.vm.id"
-  container_id = "vsphere_vapp_container.vapp_container.id"
-  start_action = "non"
+  target_id    = "${vsphere_virtual_machine.vm.moid}"
+  container_id = "${vsphere_vapp_container.vapp_container.id}"
+  start_action = "none"
 }
 
 resource "vsphere_virtual_machine" "vm" {
-  name             = "terraform-virutal-machine-test"
+  name             = "terraform-virtual-machine-test"
   resource_pool_id = "${vsphere_vapp_container.vapp_container.id}"
   datastore_id     = "${data.vsphere_datastore.datastore.id}"
   num_cpus         = 2

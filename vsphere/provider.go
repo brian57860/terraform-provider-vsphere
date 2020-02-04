@@ -126,6 +126,8 @@ func Provider() terraform.ResourceProvider {
 			"vsphere_vapp_entity":                             resourceVSphereVAppEntity(),
 			"vsphere_vmfs_datastore":                          resourceVSphereVmfsDatastore(),
 			"vsphere_virtual_machine_snapshot":                resourceVSphereVirtualMachineSnapshot(),
+			"vsphere_host":                                    resourceVsphereHost(),
+			"vsphere_vnic":                                    resourceVsphereNic(),
 		},
 
 		DataSourcesMap: map[string]*schema.Resource{
@@ -139,6 +141,7 @@ func Provider() terraform.ResourceProvider {
 			"vsphere_host":                       dataSourceVSphereHost(),
 			"vsphere_network":                    dataSourceVSphereNetwork(),
 			"vsphere_resource_pool":              dataSourceVSphereResourcePool(),
+			"vsphere_storage_policy":             dataSourceVSphereStoragePolicy(),
 			"vsphere_tag":                        dataSourceVSphereTag(),
 			"vsphere_tag_category":               dataSourceVSphereTagCategory(),
 			"vsphere_vapp_container":             dataSourceVSphereVAppContainer(),

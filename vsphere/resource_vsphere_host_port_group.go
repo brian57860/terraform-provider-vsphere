@@ -21,6 +21,7 @@ func resourceVSphereHostPortGroup() *schema.Resource {
 			Type:        schema.TypeMap,
 			Description: "The effective network policy after inheritance. Note that this will look similar to, but is not the same, as the policy attributes defined in this resource.",
 			Computed:    true,
+			Elem:        &schema.Schema{Type: schema.TypeString},
 		},
 		"key": {
 			Type:        schema.TypeString,

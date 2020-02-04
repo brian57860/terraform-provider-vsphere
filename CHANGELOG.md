@@ -1,4 +1,50 @@
-## 1.13.0 (Unreleased)
+## 1.16.0 (Unreleased)
+## 1.15.0 (January 23, 2020)
+
+IMPROVEMENTS:
+* `resource/virtual_machine`: Do not throw error when disk path is not known
+  yet. ([#944](https://github.com/terraform-providers/terraform-provider-vsphere/pull/944))
+
+BUG FIXES:
+* `resource/virtual_machine`: Do not set datastoreID in RelocateSpec when
+  datastore_cluster is set. ([#933](https://github.com/terraform-providers/terraform-provider-vsphere/pull/933))
+* `resource/vapp_container`: Fix handling of child vApp containers. ([#941](https://github.com/terraform-providers/terraform-provider-vsphere/pull/941))
+* `resource/virtual_disk`: Enforce .vmdk suffix on `vmdk_path`. ([#942](https://github.com/terraform-providers/terraform-provider-vsphere/pull/942))
+
+## 1.14.0 (December 18, 2019)
+
+IMPROVEMENTS
+* `resource/host` Add details to error messages. ([#850](https://github.com/terraform-providers/terraform-provider-vsphere/pull/850))
+* `resource/virtual_machine`: Pick default datastore for extra disks. ([#897](https://github.com/terraform-providers/terraform-provider-vsphere/pull/897))
+* `resource/virtual_machine`: Extend `ignored_guest_ips` to support CIDR. ([#841](https://github.com/terraform-providers/terraform-provider-vsphere/pull/841))
+
+FEATURES:
+* **New Resource:** `vsphere_vnic` ([#876](https://github.com/terraform-providers/terraform-provider-vsphere/pull/876))
+
+BUG FIXES:
+* `resource/virtual_machine`: Allow blank networkID in order to support cloning
+ into clusters that do not include the source network. ([#787](https://github.com/terraform-providers/terraform-provider-vsphere/pull/787))
+* `resource/host`: Properly handle situation where NIC teaming policy is `nil`. ([#889](https://github.com/terraform-providers/terraform-provider-vsphere/pull/889))
+* Limit scope when listing network interfaces. ([#840](https://github.com/terraform-providers/terraform-provider-vsphere/pull/840))
+* `resource/compute_cluster`: Set HA Admission Control Failure to `off` before deleting. ([#891](https://github.com/terraform-providers/terraform-provider-vsphere/pull/891))
+* `resource/virtual_machine_snapshot`: Fix typo in error condition. ([#906](https://github.com/terraform-providers/terraform-provider-vsphere/pull/906))
+* `tags`: Return matched tag rather than last tag in list. ([#910](https://github.com/terraform-providers/terraform-provider-vsphere/pull/910))
+* `resource/virtual_machine`: Unmount ISO when switching CDROM backends. ([#920](https://github.com/terraform-providers/terraform-provider-vsphere/pull/920))
+* `resource/virtual_machine`: Migrate VM when moving to different root resource pool. ([#931](https://github.com/terraform-providers/terraform-provider-vsphere/pull/931))
+
+## 1.13.0 (October 01, 2019)
+
+IMPROVEMENTS:
+* Add `vim_keep_alive` which sets a keepalive interval for VIM session. ([#792](https://github.com/terraform-providers/terraform-provider-vsphere/pull/792))
+* `resource/virtual_machine`: Mark `windows_sysprep_text` as sensitive. ([#802](https://github.com/terraform-providers/terraform-provider-vsphere/pull/802))
+
+FEATURES:
+* **New Resource:** `vsphere_host` ([#836](https://github.com/terraform-providers/terraform-provider-vsphere/pull/836))
+
+BUG FIXES:
+* `resource/virtual_machine`: Change the way we detect if a VM is in a vApp. ([#825](https://github.com/terraform-providers/terraform-provider-vsphere/pull/825))
+* Delete tags and tag_categories when they are removed. ([#801](https://github.com/terraform-providers/terraform-provider-vsphere/pull/801))
+
 ## 1.12.0 (June 19, 2019)
 
 IMPROVEMENTS:

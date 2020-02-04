@@ -32,6 +32,22 @@ func TestAccResourceVSphereTagCategory_basic(t *testing.T) {
 					}),
 				),
 			},
+			{
+				ResourceName:      "vsphere_tag_category.terraform-test-category",
+				ImportState:       true,
+				ImportStateVerify: true,
+				ImportStateIdFunc: func(s *terraform.State) (string, error) {
+					cat, err := testGetTagCategory(s, "terraform-test-category")
+					if err != nil {
+						return "", err
+					}
+					return cat.Name, nil
+				},
+				Config: testAccResourceVSphereTagCategoryConfigBasic,
+				Check: resource.ComposeTestCheckFunc(
+					testAccResourceVSphereTagCategoryExists(true),
+				),
+			},
 		},
 	})
 }
@@ -152,45 +168,11 @@ func TestAccResourceVSphereTagCategory_multiCardinality(t *testing.T) {
 	})
 }
 
-func TestAccResourceVSphereTagCategory_import(t *testing.T) {
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccResourceVSphereTagCategoryExists(false),
-		Steps: []resource.TestStep{
-			{
-				Config: testAccResourceVSphereTagCategoryConfigBasic,
-				Check: resource.ComposeTestCheckFunc(
-					testAccResourceVSphereTagCategoryExists(true),
-				),
-			},
-			{
-				ResourceName:      "vsphere_tag_category.terraform-test-category",
-				ImportState:       true,
-				ImportStateVerify: true,
-				ImportStateIdFunc: func(s *terraform.State) (string, error) {
-					cat, err := testGetTagCategory(s, "terraform-test-category")
-					if err != nil {
-						return "", err
-					}
-					return cat.Name, nil
-				},
-				Config: testAccResourceVSphereTagCategoryConfigBasic,
-				Check: resource.ComposeTestCheckFunc(
-					testAccResourceVSphereTagCategoryExists(true),
-				),
-			},
-		},
-	})
-}
-
 func testAccResourceVSphereTagCategoryExists(expected bool) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
 		_, err := testGetTagCategory(s, "terraform-test-category")
 		if err != nil {
-			if strings.Contains(err.Error(), "Status code: 404") && !expected {
+			if strings.Contains(err.Error(), "404 Not Found") && !expected {
 				// Expected missing
 				return nil
 			}

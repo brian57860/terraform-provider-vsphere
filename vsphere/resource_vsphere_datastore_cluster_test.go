@@ -37,6 +37,24 @@ func TestAccResourceVSphereDatastoreCluster_basic(t *testing.T) {
 					testAccResourceVSphereDatastoreClusterCheckSDRSEnabled(false),
 				),
 			},
+			{
+				ResourceName:            "vsphere_datastore_cluster.datastore_cluster",
+				ImportState:             true,
+				ImportStateVerify:       true,
+				ImportStateVerifyIgnore: []string{"datacenter_id", "sdrs_free_space_threshold"},
+				ImportStateIdFunc: func(s *terraform.State) (string, error) {
+					pod, err := testGetDatastoreCluster(s, "datastore_cluster")
+					if err != nil {
+						return "", err
+					}
+					return pod.InventoryPath, nil
+				},
+				Config: testAccResourceVSphereDatastoreClusterConfigBasic(),
+				Check: resource.ComposeTestCheckFunc(
+					testAccResourceVSphereDatastoreClusterCheckExists(true),
+					testAccResourceVSphereDatastoreClusterCheckSDRSEnabled(false),
+				),
+			},
 		},
 	})
 }
@@ -387,44 +405,6 @@ func TestAccResourceVSphereDatastoreCluster_switchCustomAttribute(t *testing.T) 
 	})
 }
 
-func TestAccResourceVSphereDatastoreCluster_import(t *testing.T) {
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			testAccPreCheck(t)
-			testAccResourceVSphereDatastoreClusterPreCheck(t)
-		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccResourceVSphereDatastoreClusterCheckExists(false),
-		Steps: []resource.TestStep{
-			{
-				Config: testAccResourceVSphereDatastoreClusterConfigBasic(),
-				Check: resource.ComposeTestCheckFunc(
-					testAccResourceVSphereDatastoreClusterCheckExists(true),
-					testAccResourceVSphereDatastoreClusterCheckSDRSEnabled(false),
-				),
-			},
-			{
-				ResourceName:            "vsphere_datastore_cluster.datastore_cluster",
-				ImportState:             true,
-				ImportStateVerify:       true,
-				ImportStateVerifyIgnore: []string{"datacenter_id", "sdrs_free_space_threshold"},
-				ImportStateIdFunc: func(s *terraform.State) (string, error) {
-					pod, err := testGetDatastoreCluster(s, "datastore_cluster")
-					if err != nil {
-						return "", err
-					}
-					return pod.InventoryPath, nil
-				},
-				Config: testAccResourceVSphereDatastoreClusterConfigBasic(),
-				Check: resource.ComposeTestCheckFunc(
-					testAccResourceVSphereDatastoreClusterCheckExists(true),
-					testAccResourceVSphereDatastoreClusterCheckSDRSEnabled(false),
-				),
-			},
-		},
-	})
-}
-
 func testAccResourceVSphereDatastoreClusterPreCheck(t *testing.T) {
 	if os.Getenv("VSPHERE_DATACENTER") == "" {
 		t.Skip("set VSPHERE_DATACENTER to run vsphere_datastore_cluster acceptance tests")
@@ -672,7 +652,7 @@ func testAccResourceVSphereDatastoreClusterCheckTags(tagResName string) resource
 		if err != nil {
 			return err
 		}
-		tagsClient, err := testAccProvider.Meta().(*VSphereClient).TagsClient()
+		tagsClient, err := testAccProvider.Meta().(*VSphereClient).TagsManager()
 		if err != nil {
 			return err
 		}
