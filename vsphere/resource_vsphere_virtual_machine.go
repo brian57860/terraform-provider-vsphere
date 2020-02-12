@@ -203,11 +203,20 @@ func resourceVSphereVirtualMachine() *schema.Resource {
 			Elem:        &schema.Resource{Schema: virtualdevice.CdromSubresourceSchema()},
 		},
 		"clone": {
-			Type:        schema.TypeList,
-			Optional:    true,
-			Description: "A specification for cloning a virtual machine from template.",
-			MaxItems:    1,
-			Elem:        &schema.Resource{Schema: vmworkflow.VirtualMachineCloneSchema()},
+			Type:          schema.TypeList,
+			Optional:      true,
+			ConflictsWith: []string{"instantclone"},
+			Description:   "A specification for cloning a virtual machine from template.",
+			MaxItems:      1,
+			Elem:          &schema.Resource{Schema: vmworkflow.VirtualMachineCloneSchema()},
+		},
+		"instantclone": {
+			Type:          schema.TypeList,
+			Optional:      true,
+			ConflictsWith: []string{"clone"},
+			Description:   "A specification for instant cloning a virtual machine from a source virtual machine.",
+			MaxItems:      1,
+			Elem:          &schema.Resource{Schema: vmworkflow.VirtualMachineInstantCloneSchema()},
 		},
 		"reboot_required": {
 			Type:        schema.TypeBool,
@@ -274,6 +283,8 @@ func resourceVSphereVirtualMachineCreate(d *schema.ResourceData, meta interface{
 	// operations that fail during this process don't create a dangling resource.
 	// The VM should also be returned powered on.
 	switch {
+	case len(d.Get("instantclone").([]interface{})) > 0:
+		vm, err = resourceVSphereVirtualMachineCreateInstantClone(d, meta)
 	case len(d.Get("clone").([]interface{})) > 0:
 		vm, err = resourceVSphereVirtualMachineCreateClone(d, meta)
 	default:
@@ -804,6 +815,12 @@ func resourceVSphereVirtualMachineCustomizeDiff(d *schema.ResourceDiff, meta int
 		}
 	}
 
+	if len(d.Get("instantclone").([]interface{})) > 0 {
+		if version.Older(viapi.VSphereVersion{Product: version.Product, Major: 6, Minor: 7}) {
+			return fmt.Errorf("instantclone is only supported on vSphere 6.7 and higher")
+		}
+	}
+
 	// Validate cdrom sub-resources
 	if err := virtualdevice.CdromDiffOperation(d, client); err != nil {
 		return err
@@ -865,6 +882,39 @@ func resourceVSphereVirtualMachineCustomizeDiff(d *schema.ResourceDiff, meta int
 					continue
 				}
 				d.ForceNew(k)
+			}
+		}
+	}
+	// If this is a new resource and we are instant cloning, perform all instant clone validation
+	// operations.
+	if len(d.Get("instantclone").([]interface{})) > 0 {
+		if err := viapi.ValidateVirtualCenter(client); err != nil {
+			return errors.New("use of the instantclone sub-resource block requires vCenter")
+		}
+
+		srcUUID := d.Get("instantclone.0.source_uuid").(string)
+		srcVM, err := virtualmachine.FromUUID(client, srcUUID)
+		if err != nil {
+			return fmt.Errorf("cannot locate source virtual machine with UUID %q: %s", srcUUID, err)
+		}
+		vprops, err := virtualmachine.Properties(srcVM)
+		if err != nil {
+			return fmt.Errorf("error fetching source virtual machine properties: %s", err)
+		}
+		//Check power state of source virtual machine
+		if vprops.Runtime.PowerState != types.VirtualMachinePowerStatePoweredOn {
+			return fmt.Errorf("the source virtual machine must be powered on to create an instant clone")
+		}
+
+		//Check disk length of source virtual machine
+		var diskChainLength int
+		for _, v := range vprops.LayoutEx.File {
+			if v.Type == string(types.VirtualMachineFileLayoutExFileTypeDiskDescriptor) ||
+				v.Type == string(types.VirtualMachineFileLayoutExFileTypeDiskExtent) {
+				diskChainLength++
+			}
+			if diskChainLength >= 255 {
+				return fmt.Errorf("the disk chain length on the source virtual machine exceeds the maximum of 255")
 			}
 		}
 	}
@@ -1341,6 +1391,205 @@ func resourceVSphereVirtualMachineCreateClone(d *schema.ResourceData, meta inter
 		}
 	}
 	// Clone is complete and ready to return
+	return vm, nil
+}
+
+// resourceVSphereVirtualMachineCreateInstantClone contains the clone VM deploy
+// path. The VM is returned.
+func resourceVSphereVirtualMachineCreateInstantClone(d *schema.ResourceData, meta interface{}) (*object.VirtualMachine, error) {
+	log.Printf("[DEBUG] %s: VM being created from instant clone", resourceVSphereVirtualMachineIDString(d))
+	client := meta.(*VSphereClient).vimClient
+
+	// Find the folder based off the path to the resource pool. Basically what we
+	// are saying here is that the VM folder that we are placing this VM in needs
+	// to be in the same hierarchy as the resource pool - so in other words, the
+	// same datacenter.
+	poolID := d.Get("resource_pool_id").(string)
+	pool, err := resourcepool.FromID(client, poolID)
+	if err != nil {
+		return nil, fmt.Errorf("could not find resource pool ID %q: %s", poolID, err)
+	}
+	fo, err := folder.VirtualMachineFolderFromObject(client, pool, d.Get("folder").(string))
+	if err != nil {
+		return nil, err
+	}
+
+	// Expand the instant clone spec. We get the source VM here too.
+	cloneSpec, srcVM, err := vmworkflow.ExpandVirtualMachineInstantCloneSpec(d, client, fo)
+	if err != nil {
+		return nil, err
+	}
+
+	// Start the clone
+	name := d.Get("name").(string)
+	timeout := d.Get("instantclone.0.timeout").(int)
+	var vm *object.VirtualMachine
+	vm, err = virtualmachine.InstantClone(client, srcVM, fo, name, cloneSpec, timeout)
+	if err != nil {
+		return nil, fmt.Errorf("error cloning virtual machine: %s", err)
+	}
+
+	// The VM has now been created and unlike a linked clone where the re-configuration
+	// takes place prior to the VM being powered-on, an instant clone is already powered-on.
+	// Therefore we only want to power-off and reconfigure the Instant Clone if the state
+	// of the Virtual Machine is different from the resource data, else we lose the shared
+	// memory benefits of the Instant Clone.
+	vprops, err := virtualmachine.Properties(vm)
+	if err != nil {
+		return nil, resourceVSphereVirtualMachineRollbackCreate(
+			d,
+			meta,
+			vm,
+			fmt.Errorf("cannot fetch properties of created virtual machine: %s", err),
+		)
+	}
+	log.Printf("[DEBUG] VM %q - UUID is %q", vm.InventoryPath, vprops.Config.Uuid)
+	d.SetId(vprops.Config.Uuid)
+
+	// Determine whether we need to reconfigure the Instant Clone based on the current and
+	// desired properties
+	cfgSpec, changed, err := expandVirtualMachineInstantCloneConfigSpecChanged(d, client, vprops.Config)
+	if err != nil {
+		return nil, resourceVSphereVirtualMachineRollbackCreate(
+			d,
+			meta,
+			vm,
+			fmt.Errorf("error in virtual machine configuration: %s", err),
+		)
+	}
+
+	// To apply device changes, we need the current devicecfgSpec from the config
+	// info. We then filter this list through the same apply process we did for
+	// create, which will apply the changes in an incremental fashion.
+	devices := object.VirtualDeviceList(vprops.Config.Hardware.Device)
+	var delta []types.BaseVirtualDeviceConfigSpec
+	// First check the state of our SCSI bus. Normalize it if we need to.
+	devices, delta, err = virtualdevice.NormalizeSCSIBus(devices, d.Get("scsi_type").(string), d.Get("scsi_controller_count").(int), d.Get("scsi_bus_sharing").(string))
+	if err != nil {
+		return nil, resourceVSphereVirtualMachineRollbackCreate(
+			d,
+			meta,
+			vm,
+			fmt.Errorf("error normalizing SCSI bus post-clone: %s", err),
+		)
+	}
+	cfgSpec.DeviceChange = virtualdevice.AppendDeviceChangeSpec(cfgSpec.DeviceChange, delta...)
+
+	// Disks
+	devices, delta, err = virtualdevice.DiskPostCloneOperation(d, client, devices)
+	if err != nil {
+		return nil, resourceVSphereVirtualMachineRollbackCreate(
+			d,
+			meta,
+			vm,
+			fmt.Errorf("error processing disk changes post-clone: %s", err),
+		)
+	}
+	cfgSpec.DeviceChange = virtualdevice.AppendDeviceChangeSpec(cfgSpec.DeviceChange, delta...)
+
+	// Network devices
+	devices, delta, err = virtualdevice.NetworkInterfacePostCloneOperation(d, client, devices)
+	if err != nil {
+		return nil, resourceVSphereVirtualMachineRollbackCreate(
+			d,
+			meta,
+			vm,
+			fmt.Errorf("error processing network device changes post-clone: %s", err),
+		)
+	}
+
+	cfgSpec.DeviceChange = virtualdevice.AppendDeviceChangeSpec(cfgSpec.DeviceChange, delta...)
+
+	// CDROM
+	devices, delta, err = virtualdevice.CdromPostCloneOperation(d, client, devices)
+	if err != nil {
+		return nil, resourceVSphereVirtualMachineRollbackCreate(
+			d,
+			meta,
+			vm,
+			fmt.Errorf("error processing CDROM device changes post-clone: %s", err),
+		)
+	}
+	cfgSpec.DeviceChange = virtualdevice.AppendDeviceChangeSpec(cfgSpec.DeviceChange, delta...)
+
+	// If we don't currently have any reboot scheduled then
+	// check whether any device operations require one
+	if !d.Get("reboot_required").(bool) {
+		for _, deviceChange := range cfgSpec.DeviceChange {
+			_, cdrom := deviceChange.GetVirtualDeviceConfigSpec().Device.(*types.VirtualCdrom)
+			switch deviceChange.GetVirtualDeviceConfigSpec().Operation {
+			case types.VirtualDeviceConfigSpecOperationAdd:
+				if cdrom {
+					d.Set("reboot_required", true)
+					break
+				}
+			case types.VirtualDeviceConfigSpecOperationEdit:
+				if !cdrom {
+					d.Set("reboot_required", true)
+					break
+				}
+			case types.VirtualDeviceConfigSpecOperationRemove:
+				d.Set("reboot_required", true)
+				break
+			}
+		}
+	}
+
+	// Only carry out the reconfigure if we actually have a change to process.
+	if changed || len(cfgSpec.DeviceChange) > 0 {
+		//Check to see if we need to shutdown the VM for this process.
+		if d.Get("reboot_required").(bool) && vprops.Runtime.PowerState != types.VirtualMachinePowerStatePoweredOff {
+			// Attempt a graceful shutdown of this process. We wrap this in a VM helper.
+			timeout := d.Get("shutdown_wait_timeout").(int)
+			force := d.Get("force_power_off").(bool)
+			if err := virtualmachine.GracefulPowerOff(client, vm, timeout, force); err != nil {
+				return nil, resourceVSphereVirtualMachineRollbackCreate(
+					d,
+					meta,
+					vm,
+					fmt.Errorf("error shutting down virtual machine: %s", err),
+				)
+			}
+		}
+		// Perform updates.
+		if _, ok := d.GetOk("datastore_cluster_id"); ok {
+			err = resourceVSphereVirtualMachineUpdateReconfigureWithSDRS(d, meta, vm, cfgSpec)
+		} else {
+			err = virtualmachine.Reconfigure(vm, cfgSpec)
+		}
+		if err != nil {
+			return nil, resourceVSphereVirtualMachineRollbackCreate(
+				d,
+				meta,
+				vm,
+				fmt.Errorf("error reconfiguring virtual machine: %s", err),
+			)
+		}
+		// Re-fetch properties
+		vprops, err = virtualmachine.Properties(vm)
+		if err != nil {
+			return nil, resourceVSphereVirtualMachineRollbackCreate(
+				d,
+				meta,
+				vm,
+				fmt.Errorf("error re-fetching VM properties after update: %s", err),
+			)
+		}
+		// Power back on the VM, and wait for network if necessary.
+		if vprops.Runtime.PowerState != types.VirtualMachinePowerStatePoweredOn {
+			if err := virtualmachine.PowerOn(vm); err != nil {
+				return nil, resourceVSphereVirtualMachineRollbackCreate(
+					d,
+					meta,
+					vm,
+					fmt.Errorf("error powering on virtual machine: %s", err),
+				)
+			}
+		}
+	}
+	d.Set("reboot_required", false)
+
+	// Instant Clone is complete and ready to return
 	return vm, nil
 }
 
