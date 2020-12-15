@@ -241,6 +241,115 @@ resource "vsphere_virtual_machine" "vm" {
   }
 }
 ```
+
+### Instant Cloning example
+
+The following configuration creates a VM from the running state of another
+virtual machine and is therefore identical to the source VM. The major
+benefit of this technology is that the clone shares both memory and disk
+space with the source VM and it is already in a running state.
+
+If the cloned virtual machine is rebooted then the benefit of shared memory
+is lost. It is therefore important to note that if the configuration of the 
+target VM differs from that of the source VM, this may invoke an operation 
+which reboots the target VM.
+
+To address this feature the following example utilises a configuration which
+replicates the properties of the source VM on the target VM, therefore
+eliminating any reconfiguration events which could result in a reboot.
+
+These properties are retrieved via the [`vsphere_virtual_machine`][tf-vsphere-virtual-machine-ds] 
+data source. This allows us to locate the UUID of the virtual machine we want to clone, 
+along with settings for network interface type, SCSI bus type (especially important on
+Windows machines), and disk attributes.
+
+~> **NOTE:** Cloning requires vCenter and is not supported on direct ESXi
+connections.
+
+```hcl
+data "vsphere_datacenter" "dc" {
+    name          = var.datacenter
+}
+
+data "vsphere_datastore" "datastore" {
+    name          = var.datastore
+    datacenter_id = data.vsphere_datacenter.dc.id
+}
+
+data "vsphere_resource_pool" "resource_pool" {
+    name          = var.resource_pool
+    datacenter_id = data.vsphere_datacenter.dc.id
+}
+
+data "vsphere_virtual_machine" "source" {
+    name          = var.source_name
+    datacenter_id = data.vsphere_datacenter.dc.id
+}
+
+resource "vsphere_virtual_machine" "vm" {
+    alternate_guest_name = data.vsphere_virtual_machine.source.alternate_guest_name
+    annotation = data.vsphere_virtual_machine.source.annotation
+    count = var.number_vms_required
+    cpu_share_count = data.vsphere_virtual_machine.source.cpu_share_count
+    cpu_share_level = data.vsphere_virtual_machine.source.cpu_share_level
+    cpu_hot_add_enabled = data.vsphere_virtual_machine.source.cpu_hot_add_enabled
+    datastore_id = data.vsphere_datastore.datastore.id
+
+    dynamic "disk" {
+        for_each = data.vsphere_virtual_machine.source.disks
+        content {
+            eagerly_scrub = disk.value.eagerly_scrub
+            label = format("disk%d", disk.key)
+            size = disk.value.size
+            thin_provisioned = disk.value.thin_provisioned
+            unit_number = disk.key
+        }
+    }
+
+    enable_disk_uuid = data.vsphere_virtual_machine.source.enable_disk_uuid
+    enable_logging = data.vsphere_virtual_machine.source.enable_logging
+
+    extra_config = {
+        "guestinfo.ethernet0.ipaddress" = "192.168.0.${count.index+1}"
+        "guestinfo.ethernet0.netmask" = "255.255.255.0"
+    }
+
+    folder = var.folder
+    guest_id = data.vsphere_virtual_machine.source.guest_id
+    
+    instantclone {
+        source_uuid = data.vsphere_virtual_machine.source.id
+    }
+
+    memory = data.vsphere_virtual_machine.source.memory
+    memory_hot_add_enabled = data.vsphere_virtual_machine.source.memory_hot_add_enabled
+    memory_limit = data.vsphere_virtual_machine.source.memory_limit
+    memory_share_count = data.vsphere_virtual_machine.source.memory_share_count
+    memory_share_level = data.vsphere_virtual_machine.source.memory_share_level
+    name = "${var.target_vm_prefix}${count.index}"
+
+    dynamic "network_interface" {
+        for_each = data.vsphere_virtual_machine.source.network_interfaces
+        content {
+            adapter_type = network_interface.value.adapter_type
+            bandwidth_limit = network_interface.value.bandwidth_limit
+            bandwidth_reservation = network_interface.value.bandwidth_reservation
+            bandwidth_share_count = network_interface.value.bandwidth_share_count
+            bandwidth_share_level = network_interface.value.bandwidth_share_level            
+            mac_address = network_interface.value.mac_address
+            network_id = network_interface.value.network_id
+            use_static_mac = true
+        }
+    }
+
+    num_cores_per_socket = data.vsphere_virtual_machine.source.num_cores_per_socket
+    num_cpus = data.vsphere_virtual_machine.source.num_cpus
+    resource_pool_id = data.vsphere_resource_pool.resource_pool.id
+    scsi_type = data.vsphere_virtual_machine.source.scsi_type
+    wait_for_guest_net_timeout = "0"
+}
+```
+
 ### Deploying VM from an OVF/OVA template
 Ovf and ova templates can be deployed both from local system and remote URL into the 
 vcenter using the `ovf_deploy` property. When deploying from local system, the 
@@ -536,6 +645,10 @@ external disks on virtual machines that are assigned to datastore clusters.
    more details.
  * `pci_device_id` - (Optional) List of host PCI device IDs to create PCI 
    passthroughs for.
+* `instantclone` - (Optional) When specified, a new virtual machine will be
+   created from the running state of another virtual machine. The following
+   option is required in order to identify the source virtual machine:  
+ * `source_uuid` - (Required) The UUID of the source virtual machine.  
    
 [virtual-machine-hardware-compatibility]: https://kb.vmware.com/s/article/2007240
 
@@ -1049,6 +1162,22 @@ The options available in the `clone` block are:
 * `customize` - (Optional) The customization spec for this clone. This allows
   the user to configure the virtual machine post-clone. For more details, see
   [virtual machine customization](#virtual-machine-customization).
+
+## Creating an Instant Clone from a running Virtual Machine
+
+The `instantclone` block can be used to create a new virtual machine from an 
+existing, running virtual machine. 
+
+See the [instant cloning example](#instant-cloning-example) for a usage synopsis.
+
+~> **NOTE:** Instant Cloning requires vCenter and is not supported on direct 
+ESXi connections.
+
+The options available in the `clone` block are:
+
+* `source_uuid` - (Required) The UUID of the source virtual machine.
+* `timeout` - (Optional) The timeout, in minutes, to wait for the instant 
+  cloning process to complete. Default: 30 minutes.
 
 ### Virtual machine customization
 
