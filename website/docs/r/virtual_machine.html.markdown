@@ -309,7 +309,7 @@ resource "vsphere_virtual_machine" "vm" {
     enable_logging = data.vsphere_virtual_machine.source.enable_logging
 
     extra_config = {
-        "guestinfo.ethernet0.ipaddress" = "192.168.0.${count.index+1}"
+        "guestinfo.ethernet0.ipaddress" = "192.168.0.1"
         "guestinfo.ethernet0.netmask" = "255.255.255.0"
     }
 
