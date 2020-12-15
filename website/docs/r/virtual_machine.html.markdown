@@ -313,7 +313,7 @@ resource "vsphere_virtual_machine" "vm" {
         "guestinfo.ethernet0.netmask" = "255.255.255.0"
     }
 
-    folder = var.folder
+    folder = "My Virtual Machines"
     guest_id = data.vsphere_virtual_machine.source.guest_id
     
     instantclone {
