@@ -63,6 +63,27 @@ func VirtualMachineCloneSchema() map[string]*schema.Schema {
 	}
 }
 
+// VirtualMachineInstantCloneSchema represents the schema for the VM instant clone sub-resource.
+//
+// This is a workflow for vsphere_virtual_machine that facilitates the creation
+// of a virtual machine through instant cloning an existing powered on virtual machine.
+func VirtualMachineInstantCloneSchema() map[string]*schema.Schema {
+	return map[string]*schema.Schema{
+		"source_uuid": {
+			Type:        schema.TypeString,
+			Required:    true,
+			Description: "The UUID of the source virtual machine.",
+		},
+		"timeout": {
+			Type:         schema.TypeInt,
+			Optional:     true,
+			Default:      30,
+			Description:  "The timeout, in minutes, to wait for the virtual machine clone to complete.",
+			ValidateFunc: validation.IntAtLeast(10),
+		},
+	}
+}
+
 // ValidateVirtualMachineClone does pre-creation validation of a virtual
 // machine's configuration to make sure it's suitable for use in cloning.
 // This includes, but is not limited to checking to make sure that the disks in
@@ -257,4 +278,132 @@ func ExpandVirtualMachineCloneSpec(d *schema.ResourceData, c *govmomi.Client) (t
 	spec.Location.Disk = relocators
 	log.Printf("[DEBUG] ExpandVirtualMachineCloneSpec: Clone spec prep complete")
 	return spec, vm, nil
+}
+
+// ExpandVirtualMachineInstantCloneSpec creates an instant clone spec for an existing virtual machine.
+//
+// The instant clone spec built by this function specifies the target datastore,
+// the resource pool, the folder, extra config and the networks that back the
+// respective network devices that are cloned from the source vm
+func ExpandVirtualMachineInstantCloneSpec(d *schema.ResourceData, c *govmomi.Client, fo *object.Folder) (types.VirtualMachineInstantCloneSpec, *object.VirtualMachine, error) {
+	var spec types.VirtualMachineInstantCloneSpec
+	log.Printf("[DEBUG] ExpandVirtualMachineInstantCloneSpec: Preparing instant clone spec for VM")
+
+	// Populate the datastore only if we have a datastore ID. The ID may not be
+	// specified in the event a datastore cluster is specified instead.
+	if dsID, ok := d.GetOk("datastore_id"); ok {
+		ds, err := datastore.FromID(c, dsID.(string))
+		if err != nil {
+			return spec, nil, fmt.Errorf("error locating datastore for VM: %s", err)
+		}
+		spec.Location.Datastore = types.NewReference(ds.Reference())
+	}
+
+	spec.Name = d.Get("name").(string)
+	spec.Location.Folder = types.NewReference(fo.Reference())
+
+	//Set extra configuration data which can be used to supply advanced parameters
+	ec := d.Get("extra_config").(map[string]interface{})
+
+	for k, v := range ec {
+		spec.Config = append(spec.Config, &types.OptionValue{Key: k, Value: v})
+	}
+
+	// prepare virtual device config spec for network card
+	configSpecs := []types.BaseVirtualDeviceConfigSpec{}
+
+	// Get the hardware devices associated with source vm
+	srcUUID := d.Get("instantclone.0.source_uuid").(string)
+	log.Printf("[DEBUG] ExpandVirtualMachineInstantCloneSpec: Cloning from UUID: %s", srcUUID)
+	srcVM, err := virtualmachine.FromUUID(c, srcUUID)
+	if err != nil {
+		return spec, nil, fmt.Errorf("cannot locate virtual machine or template with UUID %q: %s", srcUUID, err)
+	}
+	vprops, err := virtualmachine.Properties(srcVM)
+	if err != nil {
+		return spec, nil, fmt.Errorf("error fetching virtual machine or template properties: %s", err)
+	}
+
+	// Filter devices of type BaseVirtualEthernetCard
+	devices := object.VirtualDeviceList(vprops.Config.Hardware.Device)
+	devices = devices.Select(func(device types.BaseVirtualDevice) bool {
+		if _, ok := device.(types.BaseVirtualEthernetCard); ok {
+			return true
+		}
+		return false
+	})
+
+	//Get network interfaces from resource
+	n := d.Get("network_interface").([]interface{})
+
+	// Iterate through network devices and update the backing devices
+	for index, device := range devices {
+		if index < len(n) {
+
+			// Get backing device for network_interface from resource
+			backingMoid := n[index].(map[string]interface{})["network_id"]
+
+			net, err := network.FromID(c, backingMoid.(string))
+			if err != nil {
+				return spec, nil, err
+			}
+			bctx, bcancel := context.WithTimeout(context.Background(), provider.DefaultAPITimeout)
+			defer bcancel()
+			backing, err := net.EthernetCardBackingInfo(bctx)
+			if err != nil {
+				return spec, nil, err
+			}
+
+			// Configure the network device with the backing device previously determined from resource
+			virtualEthernetCard := device.(types.BaseVirtualEthernetCard).GetVirtualEthernetCard()
+			virtualEthernetCard.Backing = backing
+
+			bandwidthLimit := int64(n[index].(map[string]interface{})["bandwidth_limit"].(int))
+			bandwidthReservation := int64(n[index].(map[string]interface{})["bandwidth_reservation"].(int))
+
+			virtualEthernetCard.ResourceAllocation.Limit = &bandwidthLimit
+			virtualEthernetCard.ResourceAllocation.Reservation = &bandwidthReservation
+			virtualEthernetCard.ResourceAllocation.Share.Level = types.SharesLevel(n[index].(map[string]interface{})["bandwidth_share_level"].(string))
+
+			if virtualEthernetCard.ResourceAllocation.Share.Level == types.SharesLevelCustom {
+				virtualEthernetCard.ResourceAllocation.Share.Shares = int32(n[index].(map[string]interface{})["bandwidth_share_count"].(int))
+			}
+
+			// If required then configure a static mac
+			if n[index].(map[string]interface{})["use_static_mac"].(bool) {
+				virtualEthernetCard.AddressType = string(types.VirtualEthernetCardMacTypeManual)
+				virtualEthernetCard.MacAddress = n[index].(map[string]interface{})["mac_address"].(string)
+			} else {
+				virtualEthernetCard.AddressType = ""
+				virtualEthernetCard.MacAddress = ""
+			}
+
+			configSpecs = append(configSpecs, &types.VirtualDeviceConfigSpec{
+				Operation: types.VirtualDeviceConfigSpecOperationEdit,
+				Device:    device,
+			})
+		}
+
+		spec.Location.DeviceChange = configSpecs
+	}
+
+	// Set the target host system and resource pool.
+	poolID := d.Get("resource_pool_id").(string)
+	pool, err := resourcepool.FromID(c, poolID)
+	if err != nil {
+		return spec, nil, fmt.Errorf("could not find resource pool ID %q: %s", poolID, err)
+	}
+
+	poolRef := pool.Reference()
+	spec.Location.Pool = &poolRef
+
+	// Grab the relocate spec for the disks.
+	l := object.VirtualDeviceList(vprops.Config.Hardware.Device)
+	relocators, err := virtualdevice.DiskCloneRelocateOperation(d, c, l)
+	if err != nil {
+		return spec, nil, err
+	}
+	spec.Location.Disk = relocators
+	log.Printf("[DEBUG] ExpandVirtualMachineInstantCloneSpec: Instant Clone spec prep complete")
+	return spec, srcVM, nil
 }

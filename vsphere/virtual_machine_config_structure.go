@@ -921,6 +921,79 @@ func expandVirtualMachineConfigSpecChanged(d *schema.ResourceData, client *govmo
 	return newSpec, !reflect.DeepEqual(oldSpec, newSpec), nil
 }
 
+// expandVirtualMachineInstantCloneConfigSpecChanged compares the current state
+// of the newly created Instant Clone with the desired state defined in the plan
+// and then determines whether a reconfiguration and/or a reboot is required to
+// achieve the desired state.
+// It does this by creating a fake ResourceData off of the VM resource schema
+// and flattening the config info into that. It then iterates through the
+// attributes of the current state and determines whether there is a difference
+// in the desired state.
+// Instant Clones are already in a powered on state, so we only want to
+// reboot the VM if necessary, else we will lose the memory sharing benefits.
+func expandVirtualMachineInstantCloneConfigSpecChanged(d *schema.ResourceData, client *govmomi.Client, info *types.VirtualMachineConfigInfo) (types.VirtualMachineConfigSpec, bool, error) {
+	// Create a fake ResourceData based upon the current state of the Instant Clone Virtual Machine
+	curData := resourceVSphereVirtualMachine().Data(&terraform.InstanceState{})
+	curData.SetId(d.Id())
+	flattenVirtualMachineConfigInfo(curData, info)
+	curData = resourceVSphereVirtualMachine().Data(curData.State())
+
+	// Get current and desired state as a map so we can iterate attributes
+	curMap := curData.State().Attributes
+	newMap := d.State().Attributes
+
+	// Iterate through current state attributes and determine whether the
+	// desired state requires either reconfiguration and/or a reboot
+	reconfigure, reboot := false, false
+
+	for curKey, curVal := range curMap {
+		// get desired value from plan
+		newVal, ok := newMap[curKey]
+		// if no value is set then retrieve default value for key
+		if !ok {
+			newVal = fmt.Sprintf("%v", d.Get(curKey))
+		}
+		if curVal != newVal {
+			switch curKey {
+			case "change_version", "extra_config.%", "uuid":
+			case "annotation":
+				reconfigure = true
+			case "num_cpus":
+				reconfigure = true
+				if !curData.Get("cpu_hot_add_enabled").(bool) {
+					reboot = true
+				}
+			case "memory":
+				reconfigure = true
+				if !curData.Get("memory_hot_add_enabled").(bool) {
+					reboot = true
+				}
+			default:
+				reconfigure = true
+				reboot = true
+			}
+		}
+		if reboot {
+			log.Printf("[DEBUG] Property change on key '%s' requires reboot, old value: %s, new value: %s", curKey, curVal, newVal)
+			break
+		}
+	}
+
+	newSpec := types.VirtualMachineConfigSpec{}
+	var err error
+
+	if reconfigure {
+		newSpec, err = expandVirtualMachineConfigSpec(d, client)
+		if err != nil {
+			return types.VirtualMachineConfigSpec{}, false, err
+		}
+		d.Set("reboot_required", reboot)
+	}
+
+	// Return the new spec and boolean flag to indicate that reconfigure task is required
+	return newSpec, reconfigure, nil
+}
+
 // getMemoryReservationLockedToMax determines if the memory_reservation is not
 // set to be equal to memory. If they are not equal, then the memory
 // reservation needs to be unlocked from the maximum. Rather than supporting

@@ -289,7 +289,6 @@ data "vsphere_virtual_machine" "source" {
 resource "vsphere_virtual_machine" "vm" {
     alternate_guest_name = data.vsphere_virtual_machine.source.alternate_guest_name
     annotation = data.vsphere_virtual_machine.source.annotation
-    count = var.number_vms_required
     cpu_share_count = data.vsphere_virtual_machine.source.cpu_share_count
     cpu_share_level = data.vsphere_virtual_machine.source.cpu_share_level
     cpu_hot_add_enabled = data.vsphere_virtual_machine.source.cpu_hot_add_enabled
@@ -326,7 +325,7 @@ resource "vsphere_virtual_machine" "vm" {
     memory_limit = data.vsphere_virtual_machine.source.memory_limit
     memory_share_count = data.vsphere_virtual_machine.source.memory_share_count
     memory_share_level = data.vsphere_virtual_machine.source.memory_share_level
-    name = "${var.target_vm_prefix}${count.index}"
+    name = "MyInstantClone"
 
     dynamic "network_interface" {
         for_each = data.vsphere_virtual_machine.source.network_interfaces

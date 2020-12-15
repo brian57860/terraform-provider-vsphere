@@ -1,5 +1,5 @@
 data "vsphere_datacenter" "dc" {
-  name = var.datacenter
+    name = var.datacenter
 }
 
 data "vsphere_datastore" "datastore" {

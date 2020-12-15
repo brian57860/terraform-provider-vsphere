@@ -461,6 +461,12 @@ func NetworkInterfacePostCloneOperation(d *schema.ResourceData, c *govmomi.Clien
 			switch k {
 			case "key", "device_address":
 				continue
+			// Skip mac_address and bandwidth_share_count if instantclone
+			// false positives on change are forcing reboot
+			case "mac_address", "bandwidth_share_count":
+				if len(d.Get("instantclone").([]interface{})) > 0 {
+					continue
+				}
 			}
 			nm[k] = v
 		}
@@ -777,7 +783,7 @@ func (r *NetworkInterfaceSubresource) Read(l object.VirtualDeviceList) error {
 			r.Set("bandwidth_limit", card.ResourceAllocation.Limit)
 			r.Set("bandwidth_reservation", card.ResourceAllocation.Reservation)
 			r.Set("bandwidth_share_count", card.ResourceAllocation.Share.Shares)
-			r.Set("bandwidth_share_level", card.ResourceAllocation.Share.Level)
+			r.Set("bandwidth_share_level", string(card.ResourceAllocation.Share.Level))
 		}
 	}
 
